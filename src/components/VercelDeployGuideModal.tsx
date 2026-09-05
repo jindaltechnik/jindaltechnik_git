@@ -85,7 +85,7 @@ NODE_ENV=production`;
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 text-xs text-[#5A544D] border-t border-[#E5E0D8]">
               <div>
-                <strong>Git Repository:</strong> <code className="text-[#2D2926] font-mono">googl-lab1-tjindal2026</code>
+                <strong>Git Repository:</strong> <code className="text-[#2D2926] font-mono">jindaltechnik</code>
               </div>
               <div>
                 <strong>Account Target:</strong> <code className="text-[#2D2926] font-mono">laxmijindal634@gmail.com/jindaltechnik</code>

@@ -82,17 +82,22 @@ export default function App() {
         });
         setEntries(loaded);
 
-        // Auto-select first entry if none selected
-        if (loaded.length > 0 && !selectedEntry) {
-          setSelectedEntry(loaded[0]);
-        } else if (selectedEntry) {
-          // Update reference if exists
-          const updated = loaded.find((e) => e.id === selectedEntry.id);
-          if (updated) setSelectedEntry(updated);
-        }
+        // Auto-select first entry if none selected, or update reference safely
+        setSelectedEntry((prevSelected) => {
+          if (!prevSelected && loaded.length > 0) {
+            return loaded[0];
+          }
+          if (prevSelected) {
+            const updated = loaded.find((e) => e.id === prevSelected.id);
+            return updated || (loaded.length > 0 ? loaded[0] : null);
+          }
+          return null;
+        });
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, entriesPath);
+        const errObj = handleFirestoreError(error, OperationType.LIST, entriesPath);
+        console.warn("Firestore entries subscription error:", errObj);
+        setErrorMessage("Database Sync Error: Unable to list journal entries. Check Firestore permissions or connection.");
       }
     );
 
@@ -128,7 +133,9 @@ export default function App() {
         setMessages(loaded);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, messagesPath);
+        const errObj = handleFirestoreError(error, OperationType.LIST, messagesPath);
+        console.warn("Firestore messages subscription error:", errObj);
+        setErrorMessage("Database Sync Error: Unable to load message thread.");
       }
     );
 

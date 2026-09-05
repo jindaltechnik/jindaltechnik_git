@@ -1,15 +1,29 @@
 import React, { useState } from "react";
-import { ShieldCheck, Lock, Sparkles, BookOpen, ArrowRight, Key, Layers, Globe, UserCheck } from "lucide-react";
+import { ShieldCheck, Lock, Sparkles, BookOpen, ArrowRight, Key, Layers, Globe, UserCheck, ExternalLink } from "lucide-react";
 import { signInWithGoogle, signInAsGuest } from "../lib/firebase";
+import { OAuthDomainModal } from "./OAuthDomainModal";
 
 interface LandingPageProps {
   onOpenDeployGuide: () => void;
+  onStartLocalGuestSession: () => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onStartLocalGuestSession }) => {
   const [loading, setLoading] = useState(false);
   const [guestLoading, setGuestLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isOAuthModalOpen, setIsOAuthModalOpen] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  const isIframe = typeof window !== "undefined" && window.self !== window.top;
+
+  const handleCopyDomain = () => {
+    if (typeof window !== "undefined") {
+      navigator.clipboard.writeText(window.location.hostname);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2000);
+    }
+  };
 
   const handleGoogleSignIn = async () => {
     try {
@@ -19,12 +33,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide }) =
     } catch (err: any) {
       console.error("Sign-in failed:", err);
       const code = err?.code || "";
-      if (code === "auth/unauthorized-domain") {
+      const msg = err?.message || "";
+      if (code === "auth/operation-not-allowed") {
         setError(
-          "Domain Unauthorized: Please add your current domain (e.g. JindalTechnik.com or preview URL) to Firebase Console > Authentication > Settings > Authorized Domains."
+          "Google Provider Disabled: Please enable 'Google' as a sign-in provider in Firebase Console > Authentication > Sign-in method."
         );
-      } else if (code === "auth/popup-blocked") {
-        setError("Sign-in popup was blocked by your browser or iframe. Try 'Quick Guest Session' below or open the app in a new browser tab.");
+      } else if (code === "auth/unauthorized-domain" || code === "auth/domain-restricted-operation" || msg.includes("domain-restricted")) {
+        setError(
+          `Domain Unauthorized: Please add '${window.location.hostname}' to Firebase Console > Authentication > Settings > Authorized Domains, or click 'Start Local Guest Session' below.`
+        );
+      } else if (code === "auth/iframe-popup-blocked" || code === "auth/popup-blocked") {
+        setError(
+          "Sign-in popup was blocked by browser iframe restrictions. Click 'Open App in Standalone Tab' below or use Quick Guest Session."
+        );
       } else if (code === "auth/popup-closed-by-user") {
         setError("Google sign-in popup was closed before completing.");
       } else {
@@ -35,14 +56,34 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide }) =
     }
   };
 
+  const handleOpenNewTab = () => {
+    if (typeof window !== "undefined") {
+      window.open(window.location.href, "_blank");
+    }
+  };
+
   const handleGuestSignIn = async () => {
     try {
       setGuestLoading(true);
       setError(null);
       await signInAsGuest();
     } catch (err: any) {
-      console.error("Guest sign-in failed:", err);
-      setError(err?.message || "Failed to start guest session.");
+      console.warn("Guest sign-in failed:", err);
+      const code = err?.code || "";
+      const msg = err?.message || "";
+      if (
+        code === "auth/domain-restricted-operation" ||
+        code === "auth/unauthorized-domain" ||
+        code === "auth/operation-not-allowed" ||
+        code === "auth/admin-restricted-operation" ||
+        msg.includes("domain-restricted") ||
+        msg.includes("unauthorized domain")
+      ) {
+        console.log("Domain restricted by Firebase Auth settings. Falling back to Local Guest Session...");
+        onStartLocalGuestSession();
+      } else {
+        setError(err?.message || "Failed to start guest session.");
+      }
     } finally {
       setGuestLoading(false);
     }
@@ -88,8 +129,42 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide }) =
           </p>
 
           {error && (
-            <div className="mb-6 p-3.5 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-xs text-left">
-              {error}
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-800 text-xs text-left space-y-2">
+              <p className="font-medium">{error}</p>
+              {error.includes("Domain Unauthorized") && (
+                <div className="pt-2 border-t border-red-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                  <button
+                    onClick={handleCopyDomain}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1 bg-red-100 hover:bg-red-200 text-red-900 rounded-lg font-mono font-medium transition cursor-pointer"
+                  >
+                    <span>{copiedDomain ? "Copied!" : `Copy '${window.location.hostname}'`}</span>
+                  </button>
+                  <a
+                    href="https://console.firebase.google.com/project/jindaltechnik/authentication/settings"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center space-x-1 text-red-700 font-semibold hover:underline"
+                  >
+                    <span>Open Firebase Settings</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isIframe && (
+            <div className="mb-6 p-3 bg-[#F0EDE8] border border-[#D8DBC7] rounded-2xl flex items-center justify-between text-xs text-[#5A5A40]">
+              <span className="text-[11px] text-[#5A544D] text-left pr-2">
+                Previewing inside iframe? Open in standalone tab for seamless Google OAuth.
+              </span>
+              <button
+                onClick={handleOpenNewTab}
+                className="shrink-0 flex items-center space-x-1 font-semibold text-[#5A5A40] hover:underline cursor-pointer"
+              >
+                <span>Open Tab</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
 
@@ -149,6 +224,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide }) =
             )}
           </button>
 
+          <button
+            onClick={onStartLocalGuestSession}
+            className="w-full mt-2 flex items-center justify-center space-x-1.5 text-[11px] text-[#5A5A40] hover:text-[#2D2926] hover:underline transition cursor-pointer py-1"
+          >
+            <span>Or Start Local Guest Session directly (bypass domain rules)</span>
+          </button>
+
           <div className="mt-6 pt-4 border-t border-[#E5E0D8] flex items-center justify-between text-[11px] text-[#8A847C]">
             <span className="flex items-center text-[#2D4F38] font-medium">
               <ShieldCheck className="w-3.5 h-3.5 mr-1 text-[#385244]" />
@@ -186,23 +268,37 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide }) =
             </div>
             <h3 className="text-sm font-semibold text-[#4A443D] mb-1.5 font-serif">Vercel & GCP Deployment</h3>
             <p className="text-xs text-[#5A544D] leading-relaxed">
-              Configured for hosting on <strong className="text-[#2D2926]">JindalTechnik.com</strong> via git repo <code className="text-[#5A5A40] font-mono">googl-lab1-tjindal2026</code>.
+              Configured for hosting on <strong className="text-[#2D2926]">JindalTechnik.com</strong> via git repo <code className="text-[#5A5A40] font-mono">jindaltechnik</code>.
             </p>
           </div>
         </div>
 
-        {/* Deploy Guide Trigger */}
-        <div className="mt-12">
+        {/* Deploy & OAuth Guide Triggers */}
+        <div className="mt-12 flex flex-wrap items-center justify-center gap-4">
+          <button
+            onClick={() => setIsOAuthModalOpen(true)}
+            className="inline-flex items-center space-x-2 text-xs font-medium uppercase tracking-widest text-[#5A5A40] hover:text-[#2D2926] bg-[#E8EAE0] hover:bg-[#D8DBC7] px-5 py-2.5 rounded-full border border-[#D8DBC7] transition cursor-pointer"
+          >
+            <Key className="w-4 h-4 text-[#5A5A40]" />
+            <span>View Google OAuth Redirect URIs & Domains</span>
+          </button>
+
           <button
             onClick={onOpenDeployGuide}
             className="inline-flex items-center space-x-2 text-xs font-medium uppercase tracking-widest text-[#5A544D] hover:text-[#2D2926] bg-[#E8EAE0] hover:bg-[#D8DBC7] px-5 py-2.5 rounded-full border border-[#D8DBC7] transition cursor-pointer"
           >
             <Layers className="w-4 h-4 text-[#5A5A40]" />
-            <span>View Vercel & GCP Secret Manager Setup Specs</span>
+            <span>View Vercel & GCP Secret Specs</span>
             <ArrowRight className="w-3.5 h-3.5 text-[#8A847C]" />
           </button>
         </div>
       </main>
+
+      {/* OAuth Domain Helper Modal */}
+      <OAuthDomainModal
+        isOpen={isOAuthModalOpen}
+        onClose={() => setIsOAuthModalOpen(false)}
+      />
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-[#E5E0D8] py-8 text-center text-xs text-[#8A847C]">
