@@ -184,25 +184,34 @@ export default function App() {
 
       setSelectedEntry(newEntryDoc);
 
-      // 3. Call backend Gemini proxy for initial AI reflection
-      const response = await fetch("/api/gemini/reflect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: initialPrompt,
-          title,
-          category,
-          history: [],
-        }),
-      });
+      // 3. Call backend Gemini proxy for initial AI reflection with graceful fallback
+      let aiReply = "Thank you for sharing your reflection.";
+      try {
+        const response = await fetch("/api/gemini/reflect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: initialPrompt,
+            title,
+            category,
+            history: [],
+          }),
+        });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Failed to generate initial AI reflection");
+        if (response.ok) {
+          const aiData = await response.json();
+          if (aiData.reply) {
+            aiReply = aiData.reply;
+          }
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          console.warn("Gemini API call returned error status:", response.status, errData);
+          aiReply = `Reflection recorded in Firestore. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for automated AI reflections.)`;
+        }
+      } catch (aiErr) {
+        console.warn("Could not connect to Gemini API endpoint:", aiErr);
+        aiReply = `Reflection recorded in Firestore. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for automated AI reflections.)`;
       }
-
-      const aiData = await response.json();
-      const aiReply = aiData.reply || "Thank you for sharing your reflection.";
 
       // 4. Save AI message to Firestore
       const aiMsgId = "msg_ai_" + Date.now();
@@ -224,8 +233,9 @@ export default function App() {
         updatedAt: new Date().toISOString(),
       });
     } catch (err: any) {
-      console.error("Error creating entry:", err);
-      setErrorMessage(err?.message || "Failed to create entry or connect to Gemini.");
+      console.error("Error creating entry in Firestore:", err);
+      setErrorMessage(err?.message || "Failed to save journal entry to Firestore.");
+      throw err;
     } finally {
       setAiLoading(false);
     }
@@ -268,25 +278,33 @@ export default function App() {
         content: m.content,
       }));
 
-      // 3. Call backend Gemini endpoint
-      const response = await fetch("/api/gemini/reflect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: promptText,
-          title: selectedEntry.title,
-          category: selectedEntry.category,
-          history: historyPayload,
-        }),
-      });
+      // 3. Call backend Gemini endpoint with graceful fallback
+      let aiReply = "Reflection noted.";
+      try {
+        const response = await fetch("/api/gemini/reflect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: promptText,
+            title: selectedEntry.title,
+            category: selectedEntry.category,
+            history: historyPayload,
+          }),
+        });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Gemini reflection failed.");
+        if (response.ok) {
+          const aiData = await response.json();
+          if (aiData.reply) {
+            aiReply = aiData.reply;
+          }
+        } else {
+          console.warn("Gemini API call returned non-200 status:", response.status);
+          aiReply = `Message saved to Firestore. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for AI responses.)`;
+        }
+      } catch (aiErr) {
+        console.warn("Could not reach Gemini endpoint:", aiErr);
+        aiReply = `Message saved to Firestore. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for AI responses.)`;
       }
-
-      const aiData = await response.json();
-      const aiReply = aiData.reply || "Reflection noted.";
 
       // 4. Save AI message in Firestore
       const aiMsgId = "msg_ai_" + Date.now();
