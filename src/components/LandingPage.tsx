@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { ShieldCheck, Lock, Sparkles, BookOpen, ArrowRight, Key, Layers, Globe } from "lucide-react";
-import { signInWithGoogle } from "../lib/firebase";
+import { ShieldCheck, Lock, Sparkles, BookOpen, ArrowRight, Key, Layers, Globe, UserCheck } from "lucide-react";
+import { signInWithGoogle, signInAsGuest } from "../lib/firebase";
 
 interface LandingPageProps {
   onOpenDeployGuide: () => void;
@@ -8,6 +8,7 @@ interface LandingPageProps {
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide }) => {
   const [loading, setLoading] = useState(false);
+  const [guestLoading, setGuestLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleGoogleSignIn = async () => {
@@ -17,9 +18,33 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide }) =
       await signInWithGoogle();
     } catch (err: any) {
       console.error("Sign-in failed:", err);
-      setError(err?.message || "Google sign-in was cancelled or failed. Please try again.");
+      const code = err?.code || "";
+      if (code === "auth/unauthorized-domain") {
+        setError(
+          "Domain Unauthorized: Please add your current domain (e.g. JindalTechnik.com or preview URL) to Firebase Console > Authentication > Settings > Authorized Domains."
+        );
+      } else if (code === "auth/popup-blocked") {
+        setError("Sign-in popup was blocked by your browser or iframe. Try 'Quick Guest Session' below or open the app in a new browser tab.");
+      } else if (code === "auth/popup-closed-by-user") {
+        setError("Google sign-in popup was closed before completing.");
+      } else {
+        setError(err?.message || "Google sign-in failed. Try Quick Guest Session below.");
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGuestSignIn = async () => {
+    try {
+      setGuestLoading(true);
+      setError(null);
+      await signInAsGuest();
+    } catch (err: any) {
+      console.error("Guest sign-in failed:", err);
+      setError(err?.message || "Failed to start guest session.");
+    } finally {
+      setGuestLoading(false);
     }
   };
 
@@ -96,6 +121,30 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide }) =
                   />
                 </svg>
                 <span>Sign in with Google</span>
+              </>
+            )}
+          </button>
+
+          <div className="relative my-4 flex items-center justify-center">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-[#E5E0D8]" />
+            </div>
+            <div className="relative bg-white px-3 text-[11px] text-[#A39D94] uppercase tracking-wider font-medium">
+              or
+            </div>
+          </div>
+
+          <button
+            onClick={handleGuestSignIn}
+            disabled={guestLoading || loading}
+            className="w-full flex items-center justify-center space-x-2 bg-[#F0EDE8] hover:bg-[#E8EAE0] text-[#5A5A40] border border-[#D8DBC7] font-medium uppercase tracking-wider text-xs py-3 px-6 rounded-full transition duration-200 disabled:opacity-50 cursor-pointer"
+          >
+            {guestLoading ? (
+              <div className="w-4 h-4 border-2 border-[#5A5A40] border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <>
+                <UserCheck className="w-4 h-4 text-[#5A5A40]" />
+                <span>Continue with Quick Guest Session</span>
               </>
             )}
           </button>

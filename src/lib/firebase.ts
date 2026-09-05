@@ -1,13 +1,24 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInAnonymously, signOut as firebaseSignOut } from "firebase/auth";
 import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
 import firebaseConfig from "../../firebase-applet-config.json";
 import { FirestoreErrorInfo, OperationType } from "../types";
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with explicit database ID from config
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Initialize Firestore with explicit database ID from config with safe fallback
+let firestoreDb;
+try {
+  if (firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== "(default)") {
+    firestoreDb = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  } else {
+    firestoreDb = getFirestore(app);
+  }
+} catch (e) {
+  console.warn("Falling back to default Firestore database instance:", e);
+  firestoreDb = getFirestore(app);
+}
+export const db = firestoreDb;
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -17,6 +28,10 @@ export const signInWithGoogle = async () => {
     prompt: "select_account",
   });
   return signInWithPopup(auth, googleProvider);
+};
+
+export const signInAsGuest = async () => {
+  return signInAnonymously(auth);
 };
 
 export const signOutUser = async () => {
