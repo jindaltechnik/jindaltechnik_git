@@ -1,0 +1,6 @@
+{
+  "name": "TJ Secure AI Journal",
+  "description": "Secure user-authenticated AI journaling & multi-turn reflections powered by JindalTechnik, Gemini 3.6 Flash, and Cloud Firestore.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

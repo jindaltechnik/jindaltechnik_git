@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User profile document isolated per user ID",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "photoURL": { "type": "string", "maxLength": 1024 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["uid", "email"]
+    },
+    "JournalEntry": {
+      "title": "Journal Entry",
+      "description": "Private journal entry and reflection thread owned by user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "category": { "type": "string", "maxLength": 64 },
+        "mood": { "type": "string", "maxLength": 64 },
+        "summary": { "type": "string", "maxLength": 2048 },
+        "lastPrompt": { "type": "string", "maxLength": 4096 },
+        "lastAiResponse": { "type": "string", "maxLength": 4096 },
+        "messageCount": { "type": "integer" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "title"]
+    },
+    "JournalMessage": {
+      "title": "Journal Message",
+      "description": "Individual multi-turn conversation turn in a reflection entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "entryId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["user", "model"] },
+        "content": { "type": "string", "maxLength": 8192 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "entryId", "userId", "role", "content"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user profile collection"
+    },
+    "/users/{userId}/entries/{entryId}": {
+      "schema": { "$ref": "#/entities/JournalEntry" },
+      "description": "User isolated journal entries collection"
+    },
+    "/users/{userId}/entries/{entryId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/JournalMessage" },
+      "description": "Multi-turn messages subcollection inside journal entry"
+    }
+  }
+}
