@@ -31,27 +31,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onO
       setError(null);
       await signInWithGoogle();
     } catch (err: any) {
-      console.warn("Google Sign-In error:", err);
+      console.warn("Google Sign-In caught error:", err);
       const code = err?.code || "";
-      const msg = err?.message || "";
-
       if (code === "auth/popup-closed-by-user") {
-        setError("Google sign-in popup was closed before account selection completed.");
-      } else if (
-        code === "auth/invalid-continue-uri" ||
-        code === "auth/unauthorized-domain" ||
-        msg.includes("invalid-continue-uri") ||
-        msg.includes("domain-restricted")
-      ) {
-        setError(
-          `Google OAuth Error [${code || "auth/invalid-continue-uri"}]: Firebase requires '${window.location.hostname}' under Firebase Console > Authentication > Settings > Authorized Domains, AND authorized in Google Cloud OAuth Credentials.`
-        );
+        setError("Sign-in popup window was closed.");
       } else if (code === "auth/popup-blocked" || code === "auth/iframe-popup-blocked") {
-        setError(
-          "Google Sign-In popup was blocked by browser iframe sandboxing. Click 'Open Tab' above to sign in."
-        );
+        setError("Popup blocked by browser. Retrying redirect mode...");
       } else {
-        setError(`Google Sign-In error [${code || "auth/error"}]: ${err?.message || "Please check credentials and try again."}`);
+        setError(`Google Sign-In was unable to complete (${err?.message || code || "Unknown error"}). You can also continue in Private Session Mode below.`);
       }
     } finally {
       setLoading(false);
@@ -125,23 +112,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onO
                   </a>
                 </div>
               )}
-              {(error.includes("invalid-continue-uri") || error.includes("preview links") || error.includes("Google Sign-In") || error.includes("OAuth Error")) && (
+              {(error.includes("invalid-continue-uri") || error.includes("unauthorized-domain") || error.includes("preview links") || error.includes("Google Sign-In") || error.includes("OAuth Error")) && (
                 <div className="pt-2 border-t border-red-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
                   <button
                     onClick={onInstantGuest}
                     className="w-full inline-flex items-center justify-center space-x-1.5 px-3 py-2 bg-[#5A5A40] hover:bg-[#4A4A35] text-white rounded-xl font-medium transition cursor-pointer shadow-sm"
                   >
-                    <span>Sign In with tjindal2026@gmail.com</span>
+                    <span>Continue with Private Session</span>
                     <ExternalLink className="w-3 h-3" />
                   </button>
-                  <a
-                    href="https://www.jindaltechnik.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center space-x-1 text-green-800 font-semibold hover:underline text-[11px]"
-                  >
-                    <span>Or test on www.jindaltechnik.com</span>
-                  </a>
                 </div>
               )}
             </div>

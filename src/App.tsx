@@ -44,6 +44,18 @@ export default function App() {
 
   // Auth observer & redirect handler
   useEffect(() => {
+    // Check for pending redirect result from signInWithRedirect
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          console.log("Redirect sign-in successful:", result.user.email);
+          setUser(result.user);
+        }
+      })
+      .catch((err) => {
+        console.warn("getRedirectResult warning:", err);
+      });
+
     // Check if a saved guest profile exists in localStorage on startup
     let hasGuest = false;
     try {
@@ -55,8 +67,8 @@ export default function App() {
           setIsLocalGuest(true);
           const guestUser = {
             uid: parsed.uid,
-            displayName: parsed.displayName || `${parsed.firstName || "Tarun"} ${parsed.lastName || "Jindal"}`,
-            email: parsed.email || "guest@jindaltechnik.com",
+            displayName: parsed.displayName || (parsed.firstName ? `${parsed.firstName} ${parsed.lastName || ""}`.trim() : "Guest Journaler"),
+            email: parsed.email || `${parsed.uid}@guest.local`,
             emailVerified: false,
             isAnonymous: true,
           } as User;
@@ -140,10 +152,11 @@ export default function App() {
   };
 
   const handleInstantGuestSession = () => {
+    const uniqueSessionId = "anon_" + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
     handleStartGuestSessionWithProfile({
-      firstName: "Tarun",
-      lastName: "Jindal",
-      email: "tjindal2026@gmail.com",
+      firstName: "Guest",
+      lastName: "Journaler",
+      email: `${uniqueSessionId}@guest.local`,
     });
   };
 

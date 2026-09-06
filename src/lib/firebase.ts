@@ -12,10 +12,27 @@ import {
 import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
 import { FirestoreErrorInfo, OperationType } from "../types";
 
+// Helper to use same-origin auth handler when deployed on custom domains (e.g. jindaltechnik.com)
+const getAuthDomain = () => {
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    const host = window.location.hostname;
+    if (
+      host &&
+      !host.includes("localhost") &&
+      !host.includes("127.0.0.1") &&
+      !host.includes("run.app") &&
+      !host.includes("web.app")
+    ) {
+      return host; // Proxies through vercel.json rewrite /__/auth/*
+    }
+  }
+  return "jindaltechnik.firebaseapp.com";
+};
+
 // Explicit configuration strictly bound to jindaltechnik (Project #543537240337)
 export const firebaseConfig = {
   apiKey: "AIzaSyCyfVbM4mM2zmMRuggSGNeG4g24uZGeO7o",
-  authDomain: "jindaltechnik.firebaseapp.com",
+  authDomain: getAuthDomain(),
   projectId: "jindaltechnik",
   storageBucket: "jindaltechnik.firebasestorage.app",
   messagingSenderId: "543537240337",
@@ -41,7 +58,7 @@ export const db = firestoreDb;
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Custom Google Sign-In helper using signInWithPopup
+// Custom Google Sign-In helper using signInWithPopup with redirect fallback
 export const signInWithGoogle = async () => {
   googleProvider.setCustomParameters({
     prompt: "select_account",
@@ -50,8 +67,13 @@ export const signInWithGoogle = async () => {
   try {
     return await signInWithPopup(auth, googleProvider);
   } catch (error: any) {
-    console.warn("signInWithPopup failed:", error?.code, error?.message);
-    throw error;
+    console.warn("signInWithPopup failed, attempting redirect flow fallback:", error?.code, error?.message);
+    if (error?.code === "auth/popup-closed-by-user") {
+      throw error;
+    }
+    // Fallback to full page redirect for popups, iframe policies, or cross-domain restrictions
+    await signInWithRedirect(auth, googleProvider);
+    return null;
   }
 };
 
