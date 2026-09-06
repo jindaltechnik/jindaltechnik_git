@@ -193,6 +193,21 @@ export const signInWithGoogle = async (): Promise<any> => {
     return res;
   } catch (error: any) {
     console.warn("signInWithPopup failed:", error?.code, error?.message);
+    if (
+      error?.code === "auth/unauthorized-domain" ||
+      error?.message?.includes("unauthorized-domain") ||
+      error?.message?.includes("Authorized Domains")
+    ) {
+      console.log("[Auth] Domain unauthorized for Firebase Popup; attempting GIS Token Client fallback...");
+      try {
+        const gisRes = await signInWithGoogleGIS();
+        return gisRes;
+      } catch (gisError: any) {
+        throw new Error(
+          `Domain '${typeof window !== "undefined" ? window.location.hostname : ""}' needs to be added in Firebase Console > Authentication > Settings > Authorized Domains. Or click 'Continue with Quick Guest Session' to start immediately!`
+        );
+      }
+    }
     throw error;
   }
 };
