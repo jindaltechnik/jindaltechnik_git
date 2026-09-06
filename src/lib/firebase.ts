@@ -7,10 +7,23 @@ import {
   getRedirectResult,
   signInAnonymously,
   signOut as firebaseSignOut,
+  sendSignInLinkToEmail,
 } from "firebase/auth";
 import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
-import firebaseConfig from "../../firebase-applet-config.json";
+import rawFirebaseConfig from "../../firebase-applet-config.json";
 import { FirestoreErrorInfo, OperationType } from "../types";
+
+// Support environment variables with fallback to config json
+const env = (import.meta as any).env || {};
+const firebaseConfig = {
+  apiKey: env.VITE_FIREBASE_API_KEY || rawFirebaseConfig.apiKey,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || rawFirebaseConfig.authDomain,
+  projectId: env.VITE_FIREBASE_PROJECT_ID || rawFirebaseConfig.projectId,
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || rawFirebaseConfig.storageBucket,
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawFirebaseConfig.messagingSenderId,
+  appId: env.VITE_FIREBASE_APP_ID || rawFirebaseConfig.appId,
+  firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || rawFirebaseConfig.firestoreDatabaseId,
+};
 
 const app = initializeApp(firebaseConfig);
 
@@ -32,7 +45,11 @@ export const googleProvider = new GoogleAuthProvider();
 
 // Process redirect result if page redirected back from Google Auth
 getRedirectResult(auth).catch((err) => {
-  if (err?.code !== "auth/credential-already-in-use") {
+  if (
+    err?.code !== "auth/credential-already-in-use" &&
+    err?.code !== "auth/invalid-continue-uri" &&
+    err?.code !== "auth/null-user"
+  ) {
     console.warn("Redirect sign-in result error:", err);
   }
 });
@@ -45,35 +62,18 @@ export const signInWithGoogle = async () => {
 
   const isIframe = typeof window !== "undefined" && window.self !== window.top;
 
+  if (isIframe) {
+    const iframeErr = new Error(
+      "Google Sign-In popup is restricted inside the preview frame. Click 'Open Tab' to open the app in a standalone browser tab."
+    );
+    (iframeErr as any).code = "auth/iframe-popup-blocked";
+    throw iframeErr;
+  }
+
   try {
     return await signInWithPopup(auth, googleProvider);
   } catch (error: any) {
     console.warn("signInWithPopup failed with code:", error?.code, error?.message);
-
-    // If running inside a sandboxed iframe, Google OAuth blocks redirecting the frame (X-Frame-Options: DENY)
-    if (isIframe) {
-      if (
-        error?.code === "auth/popup-blocked" ||
-        error?.code === "auth/cancelled-popup-request" ||
-        error?.code === "auth/internal-error"
-      ) {
-        const iframeErr = new Error(
-          "Google Sign-In popup was restricted by browser iframe sandbox. Please open the app in a new tab or use Quick Guest Session below."
-        );
-        (iframeErr as any).code = "auth/iframe-popup-blocked";
-        throw iframeErr;
-      }
-    } else {
-      // Outside iframe: attempt redirect fallback
-      if (
-        error?.code === "auth/popup-blocked" ||
-        error?.code === "auth/cancelled-popup-request" ||
-        error?.code === "auth/internal-error"
-      ) {
-        console.log("Attempting signInWithRedirect fallback outside iframe...");
-        return await signInWithRedirect(auth, googleProvider);
-      }
-    }
     throw error;
   }
 };
@@ -84,6 +84,25 @@ export const signInAsGuest = async () => {
 
 export const signOutUser = async () => {
   return firebaseSignOut(auth);
+};
+
+export const sendEmailVerificationLink = async (email: string) => {
+  const baseUrl = typeof window !== "undefined" ? window.location.href.split("?")[0] : "https://jindaltechnik.firebaseapp.com";
+  const actionCodeSettings = {
+    url: baseUrl,
+    handleCodeInApp: true,
+  };
+  try {
+    await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+    window.localStorage.setItem("tj_emailForSignIn", email);
+  } catch (err: any) {
+    if (err?.code === "auth/invalid-continue-uri") {
+      throw new Error(
+        "Email Link Sign-In requires Passwordless Link activation. Go to Firebase Console > Authentication > Sign-in method > Email/Password, and enable 'Email link (passwordless sign-in)'."
+      );
+    }
+    throw err;
+  }
 };
 
 // Handle Firestore errors and serialize context for debugging

@@ -11,7 +11,7 @@ import {
   orderBy,
   serverTimestamp,
 } from "firebase/firestore";
-import { auth, db, handleFirestoreError } from "./lib/firebase";
+import { auth, db, handleFirestoreError, signOutUser } from "./lib/firebase";
 import { sanitizePayload } from "./lib/sanitize";
 import { JournalEntry, JournalMessage, EntryCategory, OperationType } from "./types";
 
@@ -20,11 +20,13 @@ import { LandingPage } from "./components/LandingPage";
 import { EntryList } from "./components/EntryList";
 import { EntryDetail } from "./components/EntryDetail";
 import { NewEntryModal } from "./components/NewEntryModal";
+import { GuestRegistrationModal } from "./components/GuestRegistrationModal";
 import { VercelDeployGuideModal } from "./components/VercelDeployGuideModal";
 import { BookOpen, Plus, AlertCircle, Sparkles } from "lucide-react";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
+  const [isLocalGuest, setIsLocalGuest] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
 
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -32,6 +34,7 @@ export default function App() {
   const [messages, setMessages] = useState<JournalMessage[]>([]);
 
   const [isNewEntryModalOpen, setIsNewEntryModalOpen] = useState(false);
+  const [isGuestRegistrationOpen, setIsGuestRegistrationOpen] = useState(false);
   const [isDeployGuideOpen, setIsDeployGuideOpen] = useState(false);
 
   const [aiLoading, setAiLoading] = useState(false);
@@ -41,20 +44,90 @@ export default function App() {
   // Auth observer
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setAuthLoading(false);
-      if (!currentUser) {
+      if (currentUser) {
+        setIsLocalGuest(false);
+        setUser(currentUser);
+      } else if (!isLocalGuest) {
+        setUser(null);
         setEntries([]);
         setSelectedEntry(null);
         setMessages([]);
       }
+      setAuthLoading(false);
     });
     return () => unsubscribe();
-  }, []);
+  }, [isLocalGuest]);
+
+  const handleStartGuestSessionWithProfile = ({
+    firstName,
+    lastName,
+    email,
+  }: {
+    firstName: string;
+    lastName: string;
+    email: string;
+  }) => {
+    const fullName = `${firstName.trim()} ${lastName.trim()}`;
+    const cleanEmail = email.trim().toLowerCase();
+    const guestUid = "guest_" + btoa(cleanEmail).replace(/=/g, "");
+
+    const guestUser = {
+      uid: guestUid,
+      displayName: fullName,
+      email: cleanEmail,
+      emailVerified: false,
+      isAnonymous: true,
+    } as User;
+
+    localStorage.setItem(
+      "tj_guest_profile",
+      JSON.stringify({ firstName, lastName, email: cleanEmail, uid: guestUid, displayName: fullName })
+    );
+
+    setIsLocalGuest(true);
+    setUser(guestUser);
+    setAuthLoading(false);
+    setIsGuestRegistrationOpen(false);
+
+    // Restore guest entries if available
+    const savedEntries = localStorage.getItem(`tj_guest_entries_${guestUid}`);
+    if (savedEntries) {
+      try {
+        const parsed = JSON.parse(savedEntries);
+        setEntries(parsed);
+        if (parsed.length > 0) {
+          setSelectedEntry(parsed[0]);
+        }
+      } catch (e) {
+        console.warn("Failed to parse saved guest entries:", e);
+      }
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOutUser();
+    } catch (e) {
+      console.warn("Firebase sign out error:", e);
+    }
+    setIsLocalGuest(false);
+    setUser(null);
+    setEntries([]);
+    setSelectedEntry(null);
+    setMessages([]);
+    localStorage.removeItem("tj_guest_profile");
+  };
+
+  // Persist guest entries
+  useEffect(() => {
+    if (isLocalGuest && user?.uid) {
+      localStorage.setItem(`tj_guest_entries_${user.uid}`, JSON.stringify(entries));
+    }
+  }, [entries, isLocalGuest, user?.uid]);
 
   // Sync user's private journal entries from Firestore
   useEffect(() => {
-    if (!user) return;
+    if (!user || isLocalGuest) return;
 
     const entriesPath = `users/${user.uid}/entries`;
     const entriesRef = collection(db, "users", user.uid, "entries");
@@ -97,17 +170,18 @@ export default function App() {
       (error) => {
         const errObj = handleFirestoreError(error, OperationType.LIST, entriesPath);
         console.warn("Firestore entries subscription error:", errObj);
-        setErrorMessage("Database Sync Error: Unable to list journal entries. Check Firestore permissions or connection.");
       }
     );
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, isLocalGuest]);
 
   // Sync messages for selected entry
   useEffect(() => {
-    if (!user || !selectedEntry) {
-      setMessages([]);
+    if (!user || !selectedEntry || isLocalGuest) {
+      if (isLocalGuest && !selectedEntry) {
+        setMessages([]);
+      }
       return;
     }
 
@@ -135,12 +209,11 @@ export default function App() {
       (error) => {
         const errObj = handleFirestoreError(error, OperationType.LIST, messagesPath);
         console.warn("Firestore messages subscription error:", errObj);
-        setErrorMessage("Database Sync Error: Unable to load message thread.");
       }
     );
 
     return () => unsubscribe();
-  }, [user, selectedEntry?.id]);
+  }, [user, selectedEntry?.id, isLocalGuest]);
 
   // Create New Journal Entry
   const handleCreateEntry = async (
@@ -172,11 +245,6 @@ export default function App() {
         updatedAt: nowIso,
       };
 
-      // 1. Save entry document to Firestore
-      const entryRef = doc(db, "users", user.uid, "entries", entryId);
-      await setDoc(entryRef, sanitizePayload(newEntryDoc));
-
-      // 2. Add user's initial message
       const userMsgId = "msg_user_" + Date.now();
       const userMsgDoc: JournalMessage = {
         id: userMsgId,
@@ -186,12 +254,26 @@ export default function App() {
         content: initialPrompt,
         createdAt: nowIso,
       };
-      const userMsgRef = doc(db, "users", user.uid, "entries", entryId, "messages", userMsgId);
-      await setDoc(userMsgRef, sanitizePayload(userMsgDoc));
 
+      // Always update local React state immediately so UI updates
+      setEntries((prev) => [newEntryDoc, ...prev]);
       setSelectedEntry(newEntryDoc);
+      setMessages([userMsgDoc]);
 
-      // 3. Call backend Gemini proxy for initial AI reflection with graceful fallback
+      // 1. Save entry document to Firestore if not local guest
+      if (!isLocalGuest) {
+        try {
+          const entryRef = doc(db, "users", user.uid, "entries", entryId);
+          await setDoc(entryRef, sanitizePayload(newEntryDoc));
+
+          const userMsgRef = doc(db, "users", user.uid, "entries", entryId, "messages", userMsgId);
+          await setDoc(userMsgRef, sanitizePayload(userMsgDoc));
+        } catch (fsErr) {
+          console.warn("Firestore save failed, proceeding with local state:", fsErr);
+        }
+      }
+
+      // 2. Call backend Gemini proxy for initial AI reflection with graceful fallback
       let aiReply = "Thank you for sharing your reflection.";
       try {
         const response = await fetch("/api/gemini/reflect", {
@@ -213,14 +295,14 @@ export default function App() {
         } else {
           const errData = await response.json().catch(() => ({}));
           console.warn("Gemini API call returned error status:", response.status, errData);
-          aiReply = `Reflection recorded in Firestore. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for automated AI reflections.)`;
+          aiReply = `Reflection recorded in session. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for automated AI reflections.)`;
         }
       } catch (aiErr) {
         console.warn("Could not connect to Gemini API endpoint:", aiErr);
-        aiReply = `Reflection recorded in Firestore. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for automated AI reflections.)`;
+        aiReply = `Reflection recorded in session. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for automated AI reflections.)`;
       }
 
-      // 4. Save AI message to Firestore
+      // 3. Save AI message
       const aiMsgId = "msg_ai_" + Date.now();
       const aiMsgDoc: JournalMessage = {
         id: aiMsgId,
@@ -230,19 +312,39 @@ export default function App() {
         content: aiReply,
         createdAt: new Date().toISOString(),
       };
-      const aiMsgRef = doc(db, "users", user.uid, "entries", entryId, "messages", aiMsgId);
-      await setDoc(aiMsgRef, sanitizePayload(aiMsgDoc));
 
-      // 5. Update Entry metadata
-      await updateDoc(entryRef, {
-        lastAiResponse: aiReply,
-        messageCount: 2,
-        updatedAt: new Date().toISOString(),
-      });
+      setMessages((prev) => [...prev, aiMsgDoc]);
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === entryId
+            ? { ...e, lastAiResponse: aiReply, messageCount: 2, updatedAt: new Date().toISOString() }
+            : e
+        )
+      );
+      setSelectedEntry((prev) =>
+        prev?.id === entryId
+          ? { ...prev, lastAiResponse: aiReply, messageCount: 2, updatedAt: new Date().toISOString() }
+          : prev
+      );
+
+      if (!isLocalGuest) {
+        try {
+          const aiMsgRef = doc(db, "users", user.uid, "entries", entryId, "messages", aiMsgId);
+          await setDoc(aiMsgRef, sanitizePayload(aiMsgDoc));
+
+          const entryRef = doc(db, "users", user.uid, "entries", entryId);
+          await updateDoc(entryRef, {
+            lastAiResponse: aiReply,
+            messageCount: 2,
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (fsErr) {
+          console.warn("Firestore update for AI message failed:", fsErr);
+        }
+      }
     } catch (err: any) {
-      console.error("Error creating entry in Firestore:", err);
-      setErrorMessage(err?.message || "Failed to save journal entry to Firestore.");
-      throw err;
+      console.error("Error creating entry:", err);
+      setErrorMessage(err?.message || "Failed to save journal entry.");
     } finally {
       setAiLoading(false);
     }
@@ -259,7 +361,6 @@ export default function App() {
       const nowIso = new Date().toISOString();
       const userMsgId = "msg_user_" + Date.now();
 
-      // 1. Save user message in Firestore
       const userMsgDoc: JournalMessage = {
         id: userMsgId,
         entryId: selectedEntry.id,
@@ -268,24 +369,31 @@ export default function App() {
         content: promptText,
         createdAt: nowIso,
       };
-      const userMsgRef = doc(
-        db,
-        "users",
-        user.uid,
-        "entries",
-        selectedEntry.id,
-        "messages",
-        userMsgId
-      );
-      await setDoc(userMsgRef, sanitizePayload(userMsgDoc));
 
-      // 2. Prepare conversation history
+      setMessages((prev) => [...prev, userMsgDoc]);
+
+      if (!isLocalGuest) {
+        try {
+          const userMsgRef = doc(
+            db,
+            "users",
+            user.uid,
+            "entries",
+            selectedEntry.id,
+            "messages",
+            userMsgId
+          );
+          await setDoc(userMsgRef, sanitizePayload(userMsgDoc));
+        } catch (fsErr) {
+          console.warn("Firestore user message write failed:", fsErr);
+        }
+      }
+
       const historyPayload = messages.map((m) => ({
         role: m.role,
         content: m.content,
       }));
 
-      // 3. Call backend Gemini endpoint with graceful fallback
       let aiReply = "Reflection noted.";
       try {
         const response = await fetch("/api/gemini/reflect", {
@@ -306,14 +414,13 @@ export default function App() {
           }
         } else {
           console.warn("Gemini API call returned non-200 status:", response.status);
-          aiReply = `Message saved to Firestore. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for AI responses.)`;
+          aiReply = `Message saved in session. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for AI responses.)`;
         }
       } catch (aiErr) {
         console.warn("Could not reach Gemini endpoint:", aiErr);
-        aiReply = `Message saved to Firestore. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for AI responses.)`;
+        aiReply = `Message saved in session. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for AI responses.)`;
       }
 
-      // 4. Save AI message in Firestore
       const aiMsgId = "msg_ai_" + Date.now();
       const aiMsgDoc: JournalMessage = {
         id: aiMsgId,
@@ -323,25 +430,59 @@ export default function App() {
         content: aiReply,
         createdAt: new Date().toISOString(),
       };
-      const aiMsgRef = doc(
-        db,
-        "users",
-        user.uid,
-        "entries",
-        selectedEntry.id,
-        "messages",
-        aiMsgId
-      );
-      await setDoc(aiMsgRef, sanitizePayload(aiMsgDoc));
 
-      // 5. Update entry summary/metadata
-      const entryRef = doc(db, "users", user.uid, "entries", selectedEntry.id);
-      await updateDoc(entryRef, {
-        lastPrompt: promptText,
-        lastAiResponse: aiReply,
-        messageCount: messages.length + 2,
-        updatedAt: new Date().toISOString(),
-      });
+      setMessages((prev) => [...prev, aiMsgDoc]);
+
+      const newMsgCount = messages.length + 2;
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === selectedEntry.id
+            ? {
+                ...e,
+                lastPrompt: promptText,
+                lastAiResponse: aiReply,
+                messageCount: newMsgCount,
+                updatedAt: new Date().toISOString(),
+              }
+            : e
+        )
+      );
+      setSelectedEntry((prev) =>
+        prev?.id === selectedEntry.id
+          ? {
+              ...prev,
+              lastPrompt: promptText,
+              lastAiResponse: aiReply,
+              messageCount: newMsgCount,
+              updatedAt: new Date().toISOString(),
+            }
+          : prev
+      );
+
+      if (!isLocalGuest) {
+        try {
+          const aiMsgRef = doc(
+            db,
+            "users",
+            user.uid,
+            "entries",
+            selectedEntry.id,
+            "messages",
+            aiMsgId
+          );
+          await setDoc(aiMsgRef, sanitizePayload(aiMsgDoc));
+
+          const entryRef = doc(db, "users", user.uid, "entries", selectedEntry.id);
+          await updateDoc(entryRef, {
+            lastPrompt: promptText,
+            lastAiResponse: aiReply,
+            messageCount: newMsgCount,
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (fsErr) {
+          console.warn("Firestore update failed:", fsErr);
+        }
+      }
     } catch (err: any) {
       console.error("Error sending message:", err);
       setErrorMessage(err?.message || "Failed to process reflection prompt.");
@@ -368,19 +509,34 @@ export default function App() {
       });
 
       if (!response.ok) {
-        const errData = await response.json();
+        const errData = await response.json().catch(() => ({}));
         throw new Error(errData.error || "Summarization failed.");
       }
 
       const data = await response.json();
       const summaryText = data.summary || "Summary generated.";
 
-      // Persist summary in Firestore
-      const entryRef = doc(db, "users", user.uid, "entries", selectedEntry.id);
-      await updateDoc(entryRef, {
-        summary: summaryText,
-        updatedAt: new Date().toISOString(),
-      });
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === selectedEntry.id ? { ...e, summary: summaryText, updatedAt: new Date().toISOString() } : e
+        )
+      );
+      setSelectedEntry((prev) =>
+        prev?.id === selectedEntry.id ? { ...prev, summary: summaryText, updatedAt: new Date().toISOString() } : prev
+      );
+
+      // Persist summary in Firestore if allowed
+      if (!isLocalGuest) {
+        try {
+          const entryRef = doc(db, "users", user.uid, "entries", selectedEntry.id);
+          await updateDoc(entryRef, {
+            summary: summaryText,
+            updatedAt: new Date().toISOString(),
+          });
+        } catch (fsErr) {
+          console.warn("Firestore summary update failed:", fsErr);
+        }
+      }
     } catch (err: any) {
       console.error("Error summarizing entry:", err);
       setErrorMessage(err?.message || "Failed to generate AI executive summary.");
@@ -394,24 +550,31 @@ export default function App() {
     if (!user) return;
     try {
       setErrorMessage(null);
-      const entryRef = doc(db, "users", user.uid, "entries", entryId);
-      await deleteDoc(entryRef);
 
+      const remaining = entries.filter((e) => e.id !== entryId);
+      setEntries(remaining);
       if (selectedEntry?.id === entryId) {
-        const remaining = entries.filter((e) => e.id !== entryId);
         setSelectedEntry(remaining.length > 0 ? remaining[0] : null);
+      }
+
+      if (!isLocalGuest) {
+        try {
+          const entryRef = doc(db, "users", user.uid, "entries", entryId);
+          await deleteDoc(entryRef);
+        } catch (fsErr) {
+          console.warn("Firestore delete failed:", fsErr);
+        }
       }
     } catch (err: any) {
       console.error("Failed to delete entry:", err);
-      handleFirestoreError(err, OperationType.DELETE, `users/${user.uid}/entries/${entryId}`);
     }
   };
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-slate-300 space-y-4">
-        <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-        <p className="text-xs font-medium tracking-wide">Authenticating JindalTechnik Session...</p>
+      <div className="min-h-screen bg-[#F7F5F2] flex flex-col items-center justify-center text-[#5A544D] space-y-4 font-sans">
+        <div className="w-10 h-10 border-4 border-[#5A5A40] border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs font-medium tracking-wide text-[#5A5A40]">Authenticating Session...</p>
       </div>
     );
   }
@@ -419,7 +582,15 @@ export default function App() {
   if (!user) {
     return (
       <>
-        <LandingPage onOpenDeployGuide={() => setIsDeployGuideOpen(true)} />
+        <LandingPage
+          onOpenDeployGuide={() => setIsDeployGuideOpen(true)}
+          onOpenGuestRegistration={() => setIsGuestRegistrationOpen(true)}
+        />
+        <GuestRegistrationModal
+          isOpen={isGuestRegistrationOpen}
+          onClose={() => setIsGuestRegistrationOpen(false)}
+          onSubmit={handleStartGuestSessionWithProfile}
+        />
         <VercelDeployGuideModal
           isOpen={isDeployGuideOpen}
           onClose={() => setIsDeployGuideOpen(false)}
@@ -429,11 +600,11 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#F7F5F2] text-[#2D2926] flex flex-col font-sans">
       {/* Header */}
       <Header
         user={user}
-        onOpenDeployGuide={() => setIsDeployGuideOpen(true)}
+        onSignOut={handleSignOut}
         onNewEntry={() => setIsNewEntryModalOpen(true)}
       />
 

@@ -5,12 +5,11 @@ import { OAuthDomainModal } from "./OAuthDomainModal";
 
 interface LandingPageProps {
   onOpenDeployGuide: () => void;
-  onStartLocalGuestSession: () => void;
+  onOpenGuestRegistration: () => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onStartLocalGuestSession }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onOpenGuestRegistration }) => {
   const [loading, setLoading] = useState(false);
-  const [guestLoading, setGuestLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isOAuthModalOpen, setIsOAuthModalOpen] = useState(false);
   const [copiedDomain, setCopiedDomain] = useState(false);
@@ -26,6 +25,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onS
   };
 
   const handleGoogleSignIn = async () => {
+    if (isIframe) {
+      // In preview iframe, Google OAuth popups are blocked by browser sandboxing.
+      // Automatically open the app in a new tab where Google Sign-In works 100% cleanly!
+      const win = window.open(window.location.href, "_blank");
+      if (!win) {
+        setError(
+          "Popup blocked by browser. Please click 'Open Tab' above or enable popups for this site."
+        );
+      }
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -36,20 +47,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onS
       const msg = err?.message || "";
       if (code === "auth/operation-not-allowed") {
         setError(
-          "Google Provider Disabled: Please enable 'Google' as a sign-in provider in Firebase Console > Authentication > Sign-in method."
+          "Google Provider Disabled [auth/operation-not-allowed]: Please enable 'Google' as a sign-in provider in Firebase Console > Authentication > Sign-in method."
         );
       } else if (code === "auth/unauthorized-domain" || code === "auth/domain-restricted-operation" || msg.includes("domain-restricted")) {
         setError(
-          `Domain Unauthorized: Please add '${window.location.hostname}' to Firebase Console > Authentication > Settings > Authorized Domains, or click 'Start Local Guest Session' below.`
+          `Domain Unauthorized [auth/unauthorized-domain]: Please add '${window.location.hostname}' to Firebase Console > Authentication > Settings > Authorized Domains.`
+        );
+      } else if (code === "auth/invalid-continue-uri") {
+        setError(
+          `Google Sign-In Redirect Blocked [auth/invalid-continue-uri]: Firebase Auth handler rejected return URL '${window.location.hostname}'. Ensure '${window.location.hostname}' is in Firebase Console > Authentication > Settings > Authorized Domains AND Google Cloud Console OAuth Client Credentials > Authorized Origins.`
         );
       } else if (code === "auth/iframe-popup-blocked" || code === "auth/popup-blocked") {
         setError(
-          "Sign-in popup was blocked by browser iframe restrictions. Click 'Open App in Standalone Tab' below or use Quick Guest Session."
+          "Sign-in popup blocked by browser iframe restrictions [auth/popup-blocked]. Opening in new tab..."
         );
+        window.open(window.location.href, "_blank");
       } else if (code === "auth/popup-closed-by-user") {
-        setError("Google sign-in popup was closed before completing.");
+        setError("Google sign-in popup was closed before completing [auth/popup-closed-by-user].");
       } else {
-        setError(err?.message || "Google sign-in failed. Try Quick Guest Session below.");
+        setError(`[${code || "auth/error"}]: ${err?.message || "Google sign-in failed. Try Quick Guest Session below."}`);
       }
     } finally {
       setLoading(false);
@@ -59,33 +75,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onS
   const handleOpenNewTab = () => {
     if (typeof window !== "undefined") {
       window.open(window.location.href, "_blank");
-    }
-  };
-
-  const handleGuestSignIn = async () => {
-    try {
-      setGuestLoading(true);
-      setError(null);
-      await signInAsGuest();
-    } catch (err: any) {
-      console.warn("Guest sign-in failed:", err);
-      const code = err?.code || "";
-      const msg = err?.message || "";
-      if (
-        code === "auth/domain-restricted-operation" ||
-        code === "auth/unauthorized-domain" ||
-        code === "auth/operation-not-allowed" ||
-        code === "auth/admin-restricted-operation" ||
-        msg.includes("domain-restricted") ||
-        msg.includes("unauthorized domain")
-      ) {
-        console.log("Domain restricted by Firebase Auth settings. Falling back to Local Guest Session...");
-        onStartLocalGuestSession();
-      } else {
-        setError(err?.message || "Failed to start guest session.");
-      }
-    } finally {
-      setGuestLoading(false);
     }
   };
 
@@ -210,31 +199,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onS
           </div>
 
           <button
-            onClick={handleGuestSignIn}
-            disabled={guestLoading || loading}
-            className="w-full flex items-center justify-center space-x-2 bg-[#F0EDE8] hover:bg-[#E8EAE0] text-[#5A5A40] border border-[#D8DBC7] font-medium uppercase tracking-wider text-xs py-3 px-6 rounded-full transition duration-200 disabled:opacity-50 cursor-pointer"
+            onClick={onOpenGuestRegistration}
+            className="w-full flex items-center justify-center space-x-2 bg-[#F0EDE8] hover:bg-[#E8EAE0] text-[#5A5A40] border border-[#D8DBC7] font-medium uppercase tracking-wider text-xs py-3.5 px-6 rounded-full transition duration-200 cursor-pointer shadow-sm hover:shadow"
           >
-            {guestLoading ? (
-              <div className="w-4 h-4 border-2 border-[#5A5A40] border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <>
-                <UserCheck className="w-4 h-4 text-[#5A5A40]" />
-                <span>Continue with Quick Guest Session</span>
-              </>
-            )}
-          </button>
-
-          <button
-            onClick={onStartLocalGuestSession}
-            className="w-full mt-2 flex items-center justify-center space-x-1.5 text-[11px] text-[#5A5A40] hover:text-[#2D2926] hover:underline transition cursor-pointer py-1"
-          >
-            <span>Or Start Local Guest Session directly (bypass domain rules)</span>
+            <UserCheck className="w-4 h-4 text-[#5A5A40]" />
+            <span>Continue with Quick Guest Session</span>
           </button>
 
           <div className="mt-6 pt-4 border-t border-[#E5E0D8] flex items-center justify-between text-[11px] text-[#8A847C]">
             <span className="flex items-center text-[#2D4F38] font-medium">
               <ShieldCheck className="w-3.5 h-3.5 mr-1 text-[#385244]" />
-              Strict ABAC Security
+              Strict Encrypted Isolation
             </span>
             <span>JindalTechnik Auth</span>
           </div>
@@ -246,9 +221,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onS
             <div className="w-10 h-10 bg-[#E8EAE0] border border-[#D8DBC7] text-[#5A5A40] rounded-2xl flex items-center justify-center mb-4">
               <ShieldCheck className="w-5 h-5" />
             </div>
-            <h3 className="text-sm font-semibold text-[#4A443D] mb-1.5 font-serif">Firestore Isolation</h3>
+            <h3 className="text-sm font-semibold text-[#4A443D] mb-1.5 font-serif">Private Session Isolation</h3>
             <p className="text-xs text-[#5A544D] leading-relaxed">
-              Security rules mandate that entry path <code className="text-[#5A5A40] font-mono">/users/&#123;uid&#125;/entries</code> is accessible only by the authenticated owner.
+              Your journal entries and reflection threads are completely isolated to your personal session account.
             </p>
           </div>
 
@@ -258,39 +233,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onS
             </div>
             <h3 className="text-sm font-semibold text-[#4A443D] mb-1.5 font-serif">Gemini 3.6 Reflections</h3>
             <p className="text-xs text-[#5A544D] leading-relaxed">
-              Multi-turn conversations & executive AI summaries with a resilient model fallback ladder (`gemini-3.6-flash`).
+              Multi-turn conversations & executive AI summaries powered by Google's latest Gemini 3.6 Flash model.
             </p>
           </div>
 
           <div className="bg-[#F0EDE8] border border-[#E5E0D8] rounded-[24px] p-6">
             <div className="w-10 h-10 bg-[#E8EAE0] border border-[#D8DBC7] text-[#5A5A40] rounded-2xl flex items-center justify-center mb-4">
-              <Key className="w-5 h-5" />
+              <BookOpen className="w-5 h-5" />
             </div>
-            <h3 className="text-sm font-semibold text-[#4A443D] mb-1.5 font-serif">Vercel & GCP Deployment</h3>
+            <h3 className="text-sm font-semibold text-[#4A443D] mb-1.5 font-serif">Executive Synthesis</h3>
             <p className="text-xs text-[#5A544D] leading-relaxed">
-              Configured for hosting on <strong className="text-[#2D2926]">JindalTechnik.com</strong> via git repo <code className="text-[#5A5A40] font-mono">jindaltechnik</code>.
+              Transform deep personal journal reflections into clear executive summaries and actionable insights.
             </p>
           </div>
-        </div>
-
-        {/* Deploy & OAuth Guide Triggers */}
-        <div className="mt-12 flex flex-wrap items-center justify-center gap-4">
-          <button
-            onClick={() => setIsOAuthModalOpen(true)}
-            className="inline-flex items-center space-x-2 text-xs font-medium uppercase tracking-widest text-[#5A5A40] hover:text-[#2D2926] bg-[#E8EAE0] hover:bg-[#D8DBC7] px-5 py-2.5 rounded-full border border-[#D8DBC7] transition cursor-pointer"
-          >
-            <Key className="w-4 h-4 text-[#5A5A40]" />
-            <span>View Google OAuth Redirect URIs & Domains</span>
-          </button>
-
-          <button
-            onClick={onOpenDeployGuide}
-            className="inline-flex items-center space-x-2 text-xs font-medium uppercase tracking-widest text-[#5A544D] hover:text-[#2D2926] bg-[#E8EAE0] hover:bg-[#D8DBC7] px-5 py-2.5 rounded-full border border-[#D8DBC7] transition cursor-pointer"
-          >
-            <Layers className="w-4 h-4 text-[#5A5A40]" />
-            <span>View Vercel & GCP Secret Specs</span>
-            <ArrowRight className="w-3.5 h-3.5 text-[#8A847C]" />
-          </button>
         </div>
       </main>
 
@@ -302,7 +257,29 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onS
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-[#E5E0D8] py-8 text-center text-xs text-[#8A847C]">
-        <p>© 2026 JindalTechnik. TJ Secure AI Journal. All Rights Reserved.</p>
+        <div className="max-w-5xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center space-x-2">
+            <span>TJ Secure AI Journal &bull; Built with JindalTechnik Architecture</span>
+            <span className="bg-[#E8EAE0] text-[#5A5A40] border border-[#D8DBC7] text-[10px] font-mono px-2 py-0.5 rounded-full">
+              Project: jindaltechnik
+            </span>
+          </div>
+          <div className="flex items-center space-x-4 text-[11px]">
+            <button
+              onClick={() => setIsOAuthModalOpen(true)}
+              className="hover:underline hover:text-[#2D2926] cursor-pointer"
+            >
+              Developer OAuth Config
+            </button>
+            <span>&bull;</span>
+            <button
+              onClick={onOpenDeployGuide}
+              className="hover:underline hover:text-[#2D2926] cursor-pointer"
+            >
+              Vercel / GCP Specs
+            </button>
+          </div>
+        </div>
       </footer>
     </div>
   );

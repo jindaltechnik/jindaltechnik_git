@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import path from "path";
 import dotenv from "dotenv";
+import cors from "cors";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
@@ -8,6 +9,16 @@ dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Enable CORS for Vercel, Cloud Run, and local origins
+app.use(
+  cors({
+    origin: true, // Allow requesting origin dynamically
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  })
+);
 
 // Top-level body parser middleware
 app.use(express.json({ limit: "5mb" }));
