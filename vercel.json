@@ -5,6 +5,10 @@
       "destination": "https://jindaltechnik.firebaseapp.com/__/auth/:path*"
     },
     {
+      "source": "/api/:path*",
+      "destination": "https://tj-secure-ai-journal-543537240337.us-central1.run.app/api/:path*"
+    },
+    {
       "source": "/((?!api/.*).*)",
       "destination": "/index.html"
     }
