@@ -28,14 +28,14 @@ service cloud.firestore {
       match /entries/{entryId} {
         allow read: if isOwner(userId) && isValidId(userId) && isValidId(entryId);
         allow create, update: if isOwner(userId) && isValidId(userId) && isValidId(entryId) &&
-          (request.resource.data.content is string && request.resource.data.content.size() <= 4000);
+          (!('lastPrompt' in request.resource.data) || (request.resource.data.lastPrompt is string && request.resource.data.lastPrompt.size() <= 4000));
         allow delete: if isOwner(userId) && isValidId(userId) && isValidId(entryId);
 
         // Messages subcollection
         match /messages/{messageId} {
           allow read: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId);
           allow create, update: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId) &&
-            (request.resource.data.content is string && request.resource.data.content.size() <= 4000);
+            (!('content' in request.resource.data) || (request.resource.data.content is string && request.resource.data.content.size() <= 4000));
           allow delete: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId);
         }
       }
