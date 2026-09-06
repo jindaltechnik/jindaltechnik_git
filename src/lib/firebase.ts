@@ -10,19 +10,29 @@ import {
   sendSignInLinkToEmail,
 } from "firebase/auth";
 import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
-import rawFirebaseConfig from "../../firebase-applet-config.json";
 import { FirestoreErrorInfo, OperationType } from "../types";
 
-// Support environment variables with fallback to config json
+// Default fallback configuration for jindaltechnik
+const defaultConfig = {
+  projectId: "jindaltechnik",
+  appId: "1:543537240337:web:e3391c6ca89e279bb5a3b8",
+  apiKey: "AIzaSyCyfVbM4mM2zmMRuggSGNeG4g24uZGeO7o",
+  authDomain: "jindaltechnik.firebaseapp.com",
+  firestoreDatabaseId: "ai-studio-059cf23a-d9c8-4a15-b4ce-d93cb5a1d55b",
+  storageBucket: "jindaltechnik.firebasestorage.app",
+  messagingSenderId: "543537240337",
+};
+
+// Support environment variables with fallback to default config
 const env = (import.meta as any).env || {};
 const firebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY || rawFirebaseConfig.apiKey,
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || rawFirebaseConfig.authDomain,
-  projectId: env.VITE_FIREBASE_PROJECT_ID || rawFirebaseConfig.projectId,
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || rawFirebaseConfig.storageBucket,
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawFirebaseConfig.messagingSenderId,
-  appId: env.VITE_FIREBASE_APP_ID || rawFirebaseConfig.appId,
-  firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || rawFirebaseConfig.firestoreDatabaseId,
+  apiKey: env.VITE_FIREBASE_API_KEY || defaultConfig.apiKey,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || defaultConfig.authDomain,
+  projectId: env.VITE_FIREBASE_PROJECT_ID || defaultConfig.projectId,
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || defaultConfig.storageBucket,
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || defaultConfig.messagingSenderId,
+  appId: env.VITE_FIREBASE_APP_ID || defaultConfig.appId,
+  firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || defaultConfig.firestoreDatabaseId,
 };
 
 const app = initializeApp(firebaseConfig);
