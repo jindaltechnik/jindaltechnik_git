@@ -13,27 +13,10 @@ import {
 import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
 import { FirestoreErrorInfo, OperationType } from "../types";
 
-// Dynamic AuthDomain helper to support same-origin proxying on custom domains (jindaltechnik.com)
-const getAuthDomain = () => {
-  if (typeof window !== "undefined" && window.location?.hostname) {
-    const host = window.location.hostname;
-    if (
-      host &&
-      !host.includes("localhost") &&
-      !host.includes("127.0.0.1") &&
-      !host.includes("run.app") &&
-      !host.includes("web.app")
-    ) {
-      return host; // Proxies through vercel.json rewrite /__/auth/*
-    }
-  }
-  return "jindaltechnik.firebaseapp.com";
-};
-
 // Explicit configuration strictly bound to jindaltechnik (Project #543537240337)
 export const firebaseConfig = {
   apiKey: "AIzaSyCyfVbM4mM2zmMRuggSGNeG4g24uZGeO7o",
-  authDomain: getAuthDomain(),
+  authDomain: "jindaltechnik.firebaseapp.com",
   projectId: "jindaltechnik",
   storageBucket: "jindaltechnik.firebasestorage.app",
   messagingSenderId: "543537240337",
@@ -122,11 +105,35 @@ export const signInWithGoogleGIS = async () => {
   });
 };
 
-// Custom Google Sign-In helper using signInWithPopup with GIS and redirect fallback
+// Custom Google Sign-In helper using Google Identity Services (GIS) with popup fallback
 export const signInWithGoogle = async () => {
   googleProvider.setCustomParameters({
     prompt: "select_account",
   });
+
+  const isCustomDomain =
+    typeof window !== "undefined" &&
+    window.location?.hostname &&
+    !window.location.hostname.includes("localhost") &&
+    !window.location.hostname.includes("127.0.0.1") &&
+    !window.location.hostname.includes("run.app") &&
+    !window.location.hostname.includes("web.app");
+
+  if (isCustomDomain) {
+    try {
+      console.log("[Auth] Initiating Google Identity Services (GIS) sign-in for custom domain...");
+      return await signInWithGoogleGIS();
+    } catch (gisError: any) {
+      console.warn("[Auth] GIS sign-in failed, attempting signInWithPopup fallback:", gisError?.message || gisError);
+      try {
+        return await signInWithPopup(auth, googleProvider);
+      } catch (popupError: any) {
+        console.warn("[Auth] Popup fallback failed, attempting redirect fallback:", popupError?.message || popupError);
+        await signInWithRedirect(auth, googleProvider);
+        return null;
+      }
+    }
+  }
 
   try {
     return await signInWithPopup(auth, googleProvider);
