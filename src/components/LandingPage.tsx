@@ -51,7 +51,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onO
         );
       } else if (code === "auth/unauthorized-domain" || code === "auth/domain-restricted-operation" || msg.includes("domain-restricted")) {
         setError(
-          `Domain Unauthorized [auth/unauthorized-domain]: Please add '${window.location.hostname}' to Firebase Console > Authentication > Settings > Authorized Domains.`
+          `Domain Unauthorized [auth/unauthorized-domain]: Firebase requires '${window.location.hostname}' to be listed separately in Firebase Console > Authentication > Settings > Authorized Domains (note: 'www.${window.location.hostname.replace("www.", "")}' and '${window.location.hostname.replace("www.", "")}' must BOTH be added).`
         );
       } else if (code === "auth/invalid-continue-uri") {
         setError(

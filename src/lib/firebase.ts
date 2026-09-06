@@ -25,14 +25,19 @@ const defaultConfig = {
 
 // Support environment variables with fallback to default config
 const env = (import.meta as any).env || {};
-const firebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY || defaultConfig.apiKey,
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || defaultConfig.authDomain,
-  projectId: env.VITE_FIREBASE_PROJECT_ID || defaultConfig.projectId,
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || defaultConfig.storageBucket,
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || defaultConfig.messagingSenderId,
-  appId: env.VITE_FIREBASE_APP_ID || defaultConfig.appId,
-  firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || defaultConfig.firestoreDatabaseId,
+
+// Guard against stale env vars pointing to legacy project 401564077737
+const envProjectId = env.VITE_FIREBASE_PROJECT_ID;
+const isValidJindalTechnikEnv = envProjectId === "jindaltechnik" || !envProjectId;
+
+export const firebaseConfig = {
+  apiKey: (isValidJindalTechnikEnv && env.VITE_FIREBASE_API_KEY) || defaultConfig.apiKey,
+  authDomain: (isValidJindalTechnikEnv && env.VITE_FIREBASE_AUTH_DOMAIN) || defaultConfig.authDomain,
+  projectId: "jindaltechnik",
+  storageBucket: (isValidJindalTechnikEnv && env.VITE_FIREBASE_STORAGE_BUCKET) || defaultConfig.storageBucket,
+  messagingSenderId: "543537240337",
+  appId: "1:543537240337:web:e3391c6ca89e279bb5a3b8",
+  firestoreDatabaseId: (isValidJindalTechnikEnv && env.VITE_FIREBASE_DATABASE_ID) || defaultConfig.firestoreDatabaseId,
 };
 
 const app = initializeApp(firebaseConfig);
@@ -84,6 +89,15 @@ export const signInWithGoogle = async () => {
     return await signInWithPopup(auth, googleProvider);
   } catch (error: any) {
     console.warn("signInWithPopup failed with code:", error?.code, error?.message);
+    if (
+      error?.code === "auth/popup-blocked" ||
+      error?.code === "auth/popup-closed-by-user" ||
+      error?.code === "auth/cancelled-popup-request"
+    ) {
+      // Fallback to redirect sign-in on mobile / strict popup blockers
+      await signInWithRedirect(auth, googleProvider);
+      return;
+    }
     throw error;
   }
 };
