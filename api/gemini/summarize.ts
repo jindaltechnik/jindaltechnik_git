@@ -52,7 +52,7 @@ Format output:
 - **Suggested Action Item / Reflection Prompt**: 1 inspiring question.`;
 
     const prompt = `Summarize this journal entry titled "${title || "Journal Reflection"}":\n\n${contentToSummarize}`;
-    const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+    const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"];
 
     for (const model of models) {
       try {

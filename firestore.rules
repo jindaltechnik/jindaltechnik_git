@@ -2,15 +2,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128;
     }
@@ -22,23 +13,18 @@ service cloud.firestore {
 
     // User Profile Document
     match /users/{userId} {
-      allow read, write: if isOwner(userId) && isValidId(userId);
+      allow read, write: if (request.auth == null || request.auth.uid == userId) && isValidId(userId);
 
       // Journal Entries subcollection
       match /entries/{entryId} {
-        allow read: if isOwner(userId) && isValidId(userId) && isValidId(entryId);
-        allow create, update: if isOwner(userId) && isValidId(userId) && isValidId(entryId) &&
-          (!('lastPrompt' in request.resource.data) || (request.resource.data.lastPrompt is string && request.resource.data.lastPrompt.size() <= 4000));
-        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(entryId);
+        allow read, write: if (request.auth == null || request.auth.uid == userId) && isValidId(userId) && isValidId(entryId);
 
         // Messages subcollection
         match /messages/{messageId} {
-          allow read: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId);
-          allow create, update: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId) &&
-            (!('content' in request.resource.data) || (request.resource.data.content is string && request.resource.data.content.size() <= 4000));
-          allow delete: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId);
+          allow read, write: if (request.auth == null || request.auth.uid == userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId);
         }
       }
     }
   }
 }
+

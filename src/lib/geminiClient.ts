@@ -113,7 +113,7 @@ Category: "${category || "General"}"`;
       }
       contents.push({ role: "user", parts: [{ text: prompt }] });
 
-      const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+      const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"];
       for (const modelName of models) {
         try {
           console.log(`[Client SDK] Generating content with model: ${modelName}`);
@@ -186,7 +186,7 @@ Generate a clean, structured summary of the user's journal entry in Markdown.`;
         .join("\n\n");
       const prompt = `Summarize this journal entry titled "${title || "Journal Reflection"}":\n\n${contentToSummarize}`;
 
-      const models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+      const models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"];
       for (const modelName of models) {
         try {
           const res = await ai.models.generateContent({

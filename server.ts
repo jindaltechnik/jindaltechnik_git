@@ -8,7 +8,7 @@ import { GoogleGenAI } from "@google/genai";
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Enable CORS for Vercel, Cloud Run, and local origins
 app.use(
@@ -41,9 +41,9 @@ const getAiClient = () => {
 
 // Resilient Gemini Model Fallback Ladder using valid official SDK model endpoints
 const GEMINI_MODEL_FALLBACK_LADDER = [
-  "gemini-2.5-flash",
   "gemini-2.0-flash",
   "gemini-1.5-flash",
+  "gemini-2.0-flash-lite",
 ];
 
 interface ChatMessage {

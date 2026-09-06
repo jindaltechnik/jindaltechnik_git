@@ -358,10 +358,15 @@ export default function App() {
       setSelectedEntry(newEntryDoc);
       setMessages([userMsgDoc]);
 
-      // 2. Persist user entry to Firestore in background (non-blocking)
+      // 2. Persist user document & entry to Firestore in background (non-blocking)
       if (!isLocalGuest) {
+        const userDocRef = doc(db, "users", user.uid);
         const entryRef = doc(db, "users", user.uid, "entries", entryId);
         const userMsgRef = doc(db, "users", user.uid, "entries", entryId, "messages", userMsgId);
+
+        setDoc(userDocRef, { uid: user.uid, email: user.email || "", displayName: user.displayName || "", updatedAt: nowIso }, { merge: true }).catch((err) =>
+          console.warn("[Firestore] Non-blocking userDoc setDoc notice:", err)
+        );
         setDoc(entryRef, sanitizePayload(newEntryDoc)).catch((err) =>
           console.warn("[Firestore] Non-blocking entry setDoc notice:", err)
         );
