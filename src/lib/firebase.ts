@@ -14,15 +14,17 @@ import {
 import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
 import { FirestoreErrorInfo, OperationType } from "../types";
 
-// Explicit configuration strictly bound to jindaltechnik (Project #543537240337)
+import rawFirebaseConfig from "../../firebase-applet-config.json";
+
 export const firebaseConfig = {
-  apiKey: "AIzaSyCyfVbM4mM2zmMRuggSGNeG4g24uZGeO7o",
-  authDomain: "jindaltechnik.firebaseapp.com",
-  projectId: "jindaltechnik",
-  storageBucket: "jindaltechnik.firebasestorage.app",
-  messagingSenderId: "543537240337",
-  appId: "1:543537240337:web:e3391c6ca89e279bb5a3b8",
-  firestoreDatabaseId: "ai-studio-059cf23a-d9c8-4a15-b4ce-d93cb5a1d55b",
+  apiKey: rawFirebaseConfig.apiKey,
+  authDomain: rawFirebaseConfig.authDomain,
+  projectId: rawFirebaseConfig.projectId,
+  storageBucket: rawFirebaseConfig.storageBucket,
+  messagingSenderId: rawFirebaseConfig.messagingSenderId,
+  appId: rawFirebaseConfig.appId,
+  firestoreDatabaseId: rawFirebaseConfig.firestoreDatabaseId || "ai-studio-059cf23a-d9c8-4a15-b4ce-d93cb5a1d55b",
+  oAuthClientId: rawFirebaseConfig.oAuthClientId,
 };
 
 const app = initializeApp(firebaseConfig);
@@ -66,7 +68,7 @@ const loadGsiScript = (): Promise<void> => {
 
 export const signInWithGoogleGIS = async (): Promise<any> => {
   await loadGsiScript();
-  const clientId = "543537240337-fcaiuumdgnt5p9o0d3cnh67klpa2freh.apps.googleusercontent.com";
+  const clientId = firebaseConfig.oAuthClientId || "401564077737-rd226g4j78kd423m1uptvpq71udodq0m.apps.googleusercontent.com";
 
   return new Promise((resolve, reject) => {
     try {
@@ -108,21 +110,26 @@ export const signInWithGoogleGIS = async (): Promise<any> => {
                 // 3. Fallback: If Firebase Auth returns domain or credential restriction error,
                 // construct verified Google User object directly from Google OAuth Token response
                 if (googleProfile && googleProfile.email) {
+                  const cleanEmail = googleProfile.email.toLowerCase().trim();
+                  const stableSub = googleProfile.sub || btoa(cleanEmail).replace(/=/g, "");
+                  const stableUid = `google_${stableSub}`;
+
                   const verifiedGoogleUser = {
-                    uid: `google_${googleProfile.sub || Date.now()}`,
-                    displayName: googleProfile.name || googleProfile.email.split("@")[0],
-                    email: googleProfile.email,
+                    uid: stableUid,
+                    displayName: googleProfile.name || cleanEmail.split("@")[0],
+                    email: cleanEmail,
                     photoURL: googleProfile.picture || "",
                     emailVerified: true,
                     isAnonymous: false,
                   } as User;
 
                   localStorage.setItem(
-                    "tj_guest_profile",
+                    "tj_google_user_session",
                     JSON.stringify({
                       uid: verifiedGoogleUser.uid,
                       displayName: verifiedGoogleUser.displayName,
                       email: verifiedGoogleUser.email,
+                      photoURL: verifiedGoogleUser.photoURL,
                     })
                   );
 

@@ -57,37 +57,57 @@ export default function App() {
         console.warn("getRedirectResult warning:", err);
       });
 
-    // Check if a saved guest profile exists in localStorage on startup
-    let hasGuest = false;
+    // Check for saved Google user session or guest profile in localStorage on startup
+    let hasSavedSession = false;
     try {
-      const savedGuestProfile = localStorage.getItem("tj_guest_profile");
-      if (savedGuestProfile) {
-        const parsed = JSON.parse(savedGuestProfile);
-        if (parsed?.uid) {
-          hasGuest = true;
-          setIsLocalGuest(true);
-          const guestUser = {
-            uid: parsed.uid,
-            displayName: parsed.displayName || (parsed.firstName ? `${parsed.firstName} ${parsed.lastName || ""}`.trim() : "Guest Journaler"),
-            email: parsed.email || `${parsed.uid}@guest.local`,
-            emailVerified: false,
-            isAnonymous: true,
+      const savedGoogleSession = localStorage.getItem("tj_google_user_session");
+      if (savedGoogleSession) {
+        const parsedG = JSON.parse(savedGoogleSession);
+        if (parsedG?.uid && parsedG?.email) {
+          hasSavedSession = true;
+          setIsLocalGuest(false); // Enable full Firestore syncing!
+          const gUser = {
+            uid: parsedG.uid,
+            displayName: parsedG.displayName || parsedG.email.split("@")[0],
+            email: parsedG.email,
+            photoURL: parsedG.photoURL || "",
+            emailVerified: true,
+            isAnonymous: false,
           } as User;
-          setUser(guestUser);
+          setUser(gUser);
+        }
+      }
 
-          // Restore guest entries
-          const savedEntries = localStorage.getItem(`tj_guest_entries_${parsed.uid}`);
-          if (savedEntries) {
-            const parsedEntries = JSON.parse(savedEntries);
-            setEntries(parsedEntries);
-            if (parsedEntries.length > 0) {
-              setSelectedEntry(parsedEntries[0]);
+      if (!hasSavedSession) {
+        const savedGuestProfile = localStorage.getItem("tj_guest_profile");
+        if (savedGuestProfile) {
+          const parsed = JSON.parse(savedGuestProfile);
+          if (parsed?.uid) {
+            hasSavedSession = true;
+            setIsLocalGuest(true);
+            const guestUser = {
+              uid: parsed.uid,
+              displayName: parsed.displayName || (parsed.firstName ? `${parsed.firstName} ${parsed.lastName || ""}`.trim() : "Guest Journaler"),
+              email: parsed.email || `${parsed.uid}@guest.local`,
+              emailVerified: false,
+              isAnonymous: true,
+            } as User;
+            setUser(guestUser);
+
+            // Restore guest entries
+            const savedEntries = localStorage.getItem(`tj_guest_entries_${parsed.uid}`);
+            if (savedEntries) {
+              const parsedEntries = JSON.parse(savedEntries);
+              setEntries(parsedEntries);
+              if (parsedEntries.length > 0) {
+                setSelectedEntry(parsedEntries[0]);
+              }
             }
           }
         }
       }
     } catch (e) {
-      console.warn("Error restoring saved guest profile:", e);
+      console.warn("Error restoring saved user profile:", e);
     }
 
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -95,7 +115,7 @@ export default function App() {
         localStorage.removeItem("tj_guest_profile");
         setIsLocalGuest(false);
         setUser(currentUser);
-      } else if (!hasGuest) {
+      } else if (!hasSavedSession) {
         setUser(null);
         setEntries([]);
         setSelectedEntry(null);
@@ -181,6 +201,7 @@ export default function App() {
     setSelectedEntry(null);
     setMessages([]);
     localStorage.removeItem("tj_guest_profile");
+    localStorage.removeItem("tj_google_user_session");
   };
 
   // Persist guest entries
@@ -289,6 +310,18 @@ export default function App() {
   ) => {
     if (!user) return;
 
+    if (initialPrompt.length > 4000) {
+      throw new Error("Reflection prompt exceeds the maximum limit of 4,000 characters.");
+    }
+
+    // Daily Quota Enforcement: Max 10 journal entries per calendar day
+    const todayPrefix = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    const todayEntriesCount = entries.filter((e) => e.createdAt && e.createdAt.startsWith(todayPrefix)).length;
+
+    if (todayEntriesCount >= 10) {
+      throw new Error("Daily entry limit reached (maximum 10 journal entries per day). Please come back tomorrow to log more entries.");
+    }
+
     try {
       setErrorMessage(null);
       setAiLoading(true);
@@ -389,6 +422,10 @@ export default function App() {
   // Send follow-up prompt in active entry
   const handleSendMessage = async (promptText: string) => {
     if (!user || !selectedEntry) return;
+
+    if (promptText.length > 4000) {
+      throw new Error("Message exceeds the maximum allowed limit of 4,000 characters.");
+    }
 
     try {
       setErrorMessage(null);

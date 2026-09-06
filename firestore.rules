@@ -26,11 +26,17 @@ service cloud.firestore {
 
       // Journal Entries subcollection
       match /entries/{entryId} {
-        allow read, write: if isOwner(userId) && isValidId(userId) && isValidId(entryId);
+        allow read: if isOwner(userId) && isValidId(userId) && isValidId(entryId);
+        allow create, update: if isOwner(userId) && isValidId(userId) && isValidId(entryId) &&
+          (request.resource.data.content is string && request.resource.data.content.size() <= 4000);
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(entryId);
 
         // Messages subcollection
         match /messages/{messageId} {
-          allow read, write: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId);
+          allow read: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId);
+          allow create, update: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId) &&
+            (request.resource.data.content is string && request.resource.data.content.size() <= 4000);
+          allow delete: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId);
         }
       }
     }

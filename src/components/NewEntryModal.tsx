@@ -130,15 +130,21 @@ export const NewEntryModal: React.FC<NewEntryModalProps> = ({ isOpen, onClose, o
 
           {/* Initial Prompt */}
           <div>
-            <label className="block text-xs font-medium uppercase tracking-wider text-[#5A544D] mb-2 flex items-center gap-1.5">
-              <MessageSquare className="w-3.5 h-3.5 text-[#5A5A40]" />
-              Initial Reflection Prompt
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-medium uppercase tracking-wider text-[#5A544D] flex items-center gap-1.5">
+                <MessageSquare className="w-3.5 h-3.5 text-[#5A5A40]" />
+                Initial Reflection Prompt
+              </label>
+              <span className={`text-[10px] ${initialPrompt.length > 3800 ? "text-amber-600 font-bold" : "text-[#8A847C]"}`}>
+                {initialPrompt.length.toLocaleString()} / 4,000
+              </span>
+            </div>
             <textarea
               rows={3}
+              maxLength={4000}
               value={initialPrompt}
               onChange={(e) => setInitialPrompt(e.target.value)}
-              placeholder="What is on your mind? Share your thoughts, goals, or questions for Gemini to reflect upon..."
+              placeholder="What is on your mind? Share your thoughts, goals, or questions for Gemini to reflect upon (Max 4,000 characters)..."
               className="w-full bg-[#F7F5F2] border border-[#E5E0D8] focus:border-[#5A5A40] focus:ring-1 focus:ring-[#5A5A40] rounded-[16px] p-4 text-sm text-[#2D2926] placeholder-[#A39D94] outline-none resize-none transition"
             />
           </div>

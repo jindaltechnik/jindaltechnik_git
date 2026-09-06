@@ -200,28 +200,39 @@ export const EntryDetail: React.FC<EntryDetailProps> = ({
 
       {/* Input Form Bar */}
       <div className="p-6 bg-[#F7F5F2] border-t border-[#E5E0D8]">
-        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto relative flex items-center">
-          <textarea
-            rows={2}
-            value={inputPrompt}
-            onChange={(e) => setInputPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSubmit(e);
-              }
-            }}
-            placeholder="Share your thoughts or ask Gemini for a reflection..."
-            className="w-full bg-white border border-[#E5E0D8] rounded-[24px] p-5 pr-16 text-[#4A443D] placeholder-[#A39D94] resize-none focus:outline-none focus:ring-1 focus:ring-[#5A5A40] shadow-sm text-sm"
-          />
-          <button
-            type="submit"
-            disabled={!inputPrompt.trim() || isLoading}
-            className="absolute right-4 bottom-4 w-10 h-10 bg-[#5A5A40] hover:bg-[#4A4A35] text-white rounded-full flex items-center justify-center transition disabled:opacity-40 cursor-pointer shadow-sm"
-            title="Send Reflection Prompt"
-          >
-            <Send className="w-4 h-4" />
-          </button>
+        <form onSubmit={handleSubmit} className="max-w-4xl mx-auto relative flex flex-col">
+          <div className="flex items-center justify-between mb-1.5 px-2">
+            <span className="text-[10px] text-[#8A847C] uppercase tracking-wider">
+              Press Enter to send, Shift + Enter for new line
+            </span>
+            <span className={`text-[10px] ${inputPrompt.length > 3800 ? "text-amber-600 font-bold" : "text-[#8A847C]"}`}>
+              {inputPrompt.length.toLocaleString()} / 4,000
+            </span>
+          </div>
+          <div className="relative flex items-center">
+            <textarea
+              rows={2}
+              maxLength={4000}
+              value={inputPrompt}
+              onChange={(e) => setInputPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit(e);
+                }
+              }}
+              placeholder="Share your thoughts or ask Gemini for a reflection (Max 4,000 characters)..."
+              className="w-full bg-white border border-[#E5E0D8] rounded-[24px] p-5 pr-16 text-[#4A443D] placeholder-[#A39D94] resize-none focus:outline-none focus:ring-1 focus:ring-[#5A5A40] shadow-sm text-sm"
+            />
+            <button
+              type="submit"
+              disabled={!inputPrompt.trim() || isLoading || inputPrompt.length > 4000}
+              className="absolute right-4 bottom-4 w-10 h-10 bg-[#5A5A40] hover:bg-[#4A4A35] text-white rounded-full flex items-center justify-center transition disabled:opacity-40 cursor-pointer shadow-sm"
+              title="Send Reflection Prompt"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
         </form>
 
         <p className="text-center text-[10px] text-[#A39D94] mt-3 tracking-wide">
