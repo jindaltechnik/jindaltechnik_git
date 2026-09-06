@@ -7,9 +7,10 @@ interface LandingPageProps {
   onOpenDeployGuide: () => void;
   onOpenGuestRegistration: () => void;
   onInstantGuest: () => void;
+  onUserLoggedIn?: (user: any) => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onOpenGuestRegistration, onInstantGuest }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onOpenGuestRegistration, onInstantGuest, onUserLoggedIn }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isOAuthModalOpen, setIsOAuthModalOpen] = useState(false);
@@ -29,19 +30,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onO
     try {
       setLoading(true);
       setError(null);
-      await signInWithGoogle();
+      const res: any = await signInWithGoogle();
+      if (res?.user && onUserLoggedIn) {
+        onUserLoggedIn(res.user);
+      }
     } catch (err: any) {
       console.warn("Google Sign-In caught error:", err);
       const code = err?.code || "";
       if (code === "auth/popup-closed-by-user") {
         setError("Sign-in popup window was closed.");
       } else if (code === "auth/popup-blocked" || code === "auth/iframe-popup-blocked") {
-        setError("Popup blocked by browser. Retrying redirect mode...");
+        setError("Popup blocked by browser.");
       } else if (code === "auth/unauthorized-domain") {
         const currentHost = typeof window !== "undefined" ? window.location.hostname : "jindaltechnik.com";
-        setError(`Domain '${currentHost}' needs to be added in Firebase Console > Authentication > Settings > Authorized Domains. Click 'Continue in Private Session Mode' below to start immediately.`);
+        setError(`Domain '${currentHost}' needs to be added in Firebase Console > Authentication > Settings > Authorized Domains. Click 'Continue with Quick Guest Session' below to start immediately.`);
       } else {
-        setError(`Google Sign-In was unable to complete (${err?.message || code || "Unknown error"}). You can also continue in Private Session Mode below.`);
+        setError(`Google Sign-In was unable to complete (${err?.message || code || "Unknown error"}). You can also continue with Quick Guest Session below.`);
       }
     } finally {
       setLoading(false);

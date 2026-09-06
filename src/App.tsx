@@ -651,6 +651,7 @@ export default function App() {
           onOpenDeployGuide={() => setIsDeployGuideOpen(true)}
           onOpenGuestRegistration={() => setIsGuestRegistrationOpen(true)}
           onInstantGuest={handleInstantGuestSession}
+          onUserLoggedIn={(u) => setUser(u)}
         />
         <GuestRegistrationModal
           isOpen={isGuestRegistrationOpen}
