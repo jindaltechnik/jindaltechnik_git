@@ -37,6 +37,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onO
         setError("Sign-in popup window was closed.");
       } else if (code === "auth/popup-blocked" || code === "auth/iframe-popup-blocked") {
         setError("Popup blocked by browser. Retrying redirect mode...");
+      } else if (code === "auth/unauthorized-domain") {
+        const currentHost = typeof window !== "undefined" ? window.location.hostname : "jindaltechnik.com";
+        setError(`Domain '${currentHost}' needs to be added in Firebase Console > Authentication > Settings > Authorized Domains. Click 'Continue in Private Session Mode' below to start immediately.`);
       } else {
         setError(`Google Sign-In was unable to complete (${err?.message || code || "Unknown error"}). You can also continue in Private Session Mode below.`);
       }

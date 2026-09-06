@@ -4,6 +4,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
+  signInWithCredential,
   getRedirectResult,
   signInAnonymously,
   signOut as firebaseSignOut,
@@ -12,10 +13,27 @@ import {
 import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
 import { FirestoreErrorInfo, OperationType } from "../types";
 
+// Dynamic AuthDomain helper to support same-origin proxying on custom domains (jindaltechnik.com)
+const getAuthDomain = () => {
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    const host = window.location.hostname;
+    if (
+      host &&
+      !host.includes("localhost") &&
+      !host.includes("127.0.0.1") &&
+      !host.includes("run.app") &&
+      !host.includes("web.app")
+    ) {
+      return host; // Proxies through vercel.json rewrite /__/auth/*
+    }
+  }
+  return "jindaltechnik.firebaseapp.com";
+};
+
 // Explicit configuration strictly bound to jindaltechnik (Project #543537240337)
 export const firebaseConfig = {
   apiKey: "AIzaSyCyfVbM4mM2zmMRuggSGNeG4g24uZGeO7o",
-  authDomain: "jindaltechnik.firebaseapp.com",
+  authDomain: getAuthDomain(),
   projectId: "jindaltechnik",
   storageBucket: "jindaltechnik.firebasestorage.app",
   messagingSenderId: "543537240337",
@@ -41,7 +59,70 @@ export const db = firestoreDb;
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Custom Google Sign-In helper using signInWithPopup with redirect fallback
+// Helper to load Google Identity Services SDK dynamically
+const loadGsiScript = (): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    if (typeof window === "undefined") return resolve();
+    if ((window as any).google?.accounts?.oauth2) return resolve();
+    const existing = document.getElementById("gsi-client-script");
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      return resolve();
+    }
+    const script = document.createElement("script");
+    script.id = "gsi-client-script";
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = (err) => reject(err);
+    document.head.appendChild(script);
+  });
+};
+
+export const signInWithGoogleGIS = async () => {
+  await loadGsiScript();
+  const clientId = "543537240337-fcaiuumdgnt5p9o0d3cnh67klpa2freh.apps.googleusercontent.com";
+
+  return new Promise((resolve, reject) => {
+    try {
+      const google = (window as any).google;
+      if (!google?.accounts?.oauth2) {
+        throw new Error("Google Identity Services script unavailable");
+      }
+
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: "email profile openid",
+        callback: async (tokenResponse: any) => {
+          if (tokenResponse.error) {
+            return reject(new Error(tokenResponse.error_description || tokenResponse.error));
+          }
+          if (tokenResponse.access_token) {
+            try {
+              const credential = GoogleAuthProvider.credential(null, tokenResponse.access_token);
+              const userCred = await signInWithCredential(auth, credential);
+              resolve(userCred);
+            } catch (authErr) {
+              reject(authErr);
+            }
+          } else {
+            reject(new Error("No access token received from Google"));
+          }
+        },
+        error_callback: (err: any) => {
+          reject(err);
+        },
+      });
+
+      client.requestAccessToken({ prompt: "select_account" });
+    } catch (e) {
+      reject(e);
+    }
+  });
+};
+
+// Custom Google Sign-In helper using signInWithPopup with GIS and redirect fallback
 export const signInWithGoogle = async () => {
   googleProvider.setCustomParameters({
     prompt: "select_account",
@@ -50,13 +131,18 @@ export const signInWithGoogle = async () => {
   try {
     return await signInWithPopup(auth, googleProvider);
   } catch (error: any) {
-    console.warn("signInWithPopup failed, attempting redirect flow fallback:", error?.code, error?.message);
+    console.warn("signInWithPopup failed, trying Google Identity Services fallback:", error?.code, error?.message);
     if (error?.code === "auth/popup-closed-by-user") {
       throw error;
     }
-    // Fallback to full page redirect for popups, iframe policies, or cross-domain restrictions
-    await signInWithRedirect(auth, googleProvider);
-    return null;
+
+    try {
+      return await signInWithGoogleGIS();
+    } catch (gisError: any) {
+      console.warn("Google Identity Services fallback error, attempting redirect:", gisError);
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
   }
 };
 

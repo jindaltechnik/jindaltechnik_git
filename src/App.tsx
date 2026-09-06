@@ -11,7 +11,7 @@ import {
   orderBy,
   serverTimestamp,
 } from "firebase/firestore";
-import { auth, db, handleFirestoreError, signOutUser, firebaseConfig } from "./lib/firebase";
+import { auth, db, handleFirestoreError, signOutUser, signInAsGuest, firebaseConfig } from "./lib/firebase";
 import { getRedirectResult } from "firebase/auth";
 import { sanitizePayload } from "./lib/sanitize";
 import { JournalEntry, JournalMessage, EntryCategory, OperationType } from "./types";
@@ -151,13 +151,21 @@ export default function App() {
     }
   };
 
-  const handleInstantGuestSession = () => {
-    const uniqueSessionId = "anon_" + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
-    handleStartGuestSessionWithProfile({
-      firstName: "Guest",
-      lastName: "Journaler",
-      email: `${uniqueSessionId}@guest.local`,
-    });
+  const handleInstantGuestSession = async () => {
+    try {
+      setAuthLoading(true);
+      await signInAsGuest();
+    } catch (err: any) {
+      console.warn("Firebase anonymous sign-in failed, falling back to session mode:", err);
+      const uniqueSessionId = "anon_" + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+      handleStartGuestSessionWithProfile({
+        firstName: "Guest",
+        lastName: "Journaler",
+        email: `${uniqueSessionId}@guest.local`,
+      });
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleSignOut = async () => {
