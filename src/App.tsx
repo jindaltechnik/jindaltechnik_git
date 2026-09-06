@@ -14,6 +14,7 @@ import {
 import { auth, db, handleFirestoreError, signOutUser, signInAsGuest, firebaseConfig } from "./lib/firebase";
 import { getRedirectResult } from "firebase/auth";
 import { sanitizePayload } from "./lib/sanitize";
+import { getAiReflection, getAiSummary } from "./lib/geminiClient";
 import { JournalEntry, JournalMessage, EntryCategory, OperationType } from "./types";
 
 import { Header } from "./components/Header";
@@ -303,7 +304,7 @@ export default function App() {
         mood,
         summary: "",
         lastPrompt: initialPrompt,
-        lastAiResponse: "",
+        lastAiResponse: "Analyzing reflection...",
         messageCount: 1,
         createdAt: nowIso,
         updatedAt: nowIso,
@@ -319,54 +320,27 @@ export default function App() {
         createdAt: nowIso,
       };
 
-      // Always update local React state immediately so UI updates
+      // 1. Immediately update UI state
       setEntries((prev) => [newEntryDoc, ...prev]);
       setSelectedEntry(newEntryDoc);
       setMessages([userMsgDoc]);
 
-      // 1. Save entry document to Firestore if not local guest
+      // 2. Persist user entry to Firestore in background (non-blocking)
       if (!isLocalGuest) {
-        try {
-          const entryRef = doc(db, "users", user.uid, "entries", entryId);
-          await setDoc(entryRef, sanitizePayload(newEntryDoc));
-
-          const userMsgRef = doc(db, "users", user.uid, "entries", entryId, "messages", userMsgId);
-          await setDoc(userMsgRef, sanitizePayload(userMsgDoc));
-        } catch (fsErr) {
-          console.warn("Firestore save failed, proceeding with local state:", fsErr);
-        }
+        const entryRef = doc(db, "users", user.uid, "entries", entryId);
+        const userMsgRef = doc(db, "users", user.uid, "entries", entryId, "messages", userMsgId);
+        setDoc(entryRef, sanitizePayload(newEntryDoc)).catch((err) =>
+          console.warn("[Firestore] Non-blocking entry setDoc notice:", err)
+        );
+        setDoc(userMsgRef, sanitizePayload(userMsgDoc)).catch((err) =>
+          console.warn("[Firestore] Non-blocking userMsg setDoc notice:", err)
+        );
       }
 
-      // 2. Call backend Gemini proxy for initial AI reflection with graceful fallback
-      let aiReply = "Thank you for sharing your reflection.";
-      try {
-        const response = await fetch("/api/gemini/reflect", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompt: initialPrompt,
-            title,
-            category,
-            history: [],
-          }),
-        });
+      // 3. Fetch AI reflection with fast timeout & local smart fallback
+      const aiReply = await getAiReflection(initialPrompt, title, category, []);
 
-        if (response.ok) {
-          const aiData = await response.json();
-          if (aiData.reply) {
-            aiReply = aiData.reply;
-          }
-        } else {
-          const errData = await response.json().catch(() => ({}));
-          console.warn("Gemini API call returned error status:", response.status, errData);
-          aiReply = `Reflection recorded in session. (AI service response error - ${errData?.error || response.statusText || "please try again"})`;
-        }
-      } catch (aiErr: any) {
-        console.warn("Could not connect to Gemini API endpoint:", aiErr);
-        aiReply = `Reflection recorded in session. (Could not connect to AI service: ${aiErr?.message || "Network error"})`;
-      }
-
-      // 3. Save AI message
+      // 4. Update UI with AI reflection
       const aiMsgId = "msg_ai_" + Date.now();
       const aiMsgDoc: JournalMessage = {
         id: aiMsgId,
@@ -391,20 +365,18 @@ export default function App() {
           : prev
       );
 
+      // 5. Save AI message to Firestore in background
       if (!isLocalGuest) {
-        try {
-          const aiMsgRef = doc(db, "users", user.uid, "entries", entryId, "messages", aiMsgId);
-          await setDoc(aiMsgRef, sanitizePayload(aiMsgDoc));
-
-          const entryRef = doc(db, "users", user.uid, "entries", entryId);
-          await updateDoc(entryRef, {
-            lastAiResponse: aiReply,
-            messageCount: 2,
-            updatedAt: new Date().toISOString(),
-          });
-        } catch (fsErr) {
-          console.warn("Firestore update for AI message failed:", fsErr);
-        }
+        const aiMsgRef = doc(db, "users", user.uid, "entries", entryId, "messages", aiMsgId);
+        const entryRef = doc(db, "users", user.uid, "entries", entryId);
+        setDoc(aiMsgRef, sanitizePayload(aiMsgDoc)).catch((err) =>
+          console.warn("[Firestore] Non-blocking aiMsg setDoc notice:", err)
+        );
+        updateDoc(entryRef, {
+          lastAiResponse: aiReply,
+          messageCount: 2,
+          updatedAt: new Date().toISOString(),
+        }).catch((err) => console.warn("[Firestore] Non-blocking entry update notice:", err));
       }
     } catch (err: any) {
       console.error("Error creating entry:", err);
@@ -434,23 +406,15 @@ export default function App() {
         createdAt: nowIso,
       };
 
-      setMessages((prev) => [...prev, userMsgDoc]);
+      // 1. Update UI state immediately
+      const updatedMessages = [...messages, userMsgDoc];
+      setMessages(updatedMessages);
 
       if (!isLocalGuest) {
-        try {
-          const userMsgRef = doc(
-            db,
-            "users",
-            user.uid,
-            "entries",
-            selectedEntry.id,
-            "messages",
-            userMsgId
-          );
-          await setDoc(userMsgRef, sanitizePayload(userMsgDoc));
-        } catch (fsErr) {
-          console.warn("Firestore user message write failed:", fsErr);
-        }
+        const userMsgRef = doc(db, "users", user.uid, "entries", selectedEntry.id, "messages", userMsgId);
+        setDoc(userMsgRef, sanitizePayload(userMsgDoc)).catch((err) =>
+          console.warn("[Firestore] Non-blocking userMsg write notice:", err)
+        );
       }
 
       const historyPayload = messages.map((m) => ({
@@ -458,33 +422,8 @@ export default function App() {
         content: m.content,
       }));
 
-      let aiReply = "Reflection noted.";
-      try {
-        const response = await fetch("/api/gemini/reflect", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompt: promptText,
-            title: selectedEntry.title,
-            category: selectedEntry.category,
-            history: historyPayload,
-          }),
-        });
-
-        if (response.ok) {
-          const aiData = await response.json();
-          if (aiData.reply) {
-            aiReply = aiData.reply;
-          }
-        } else {
-          const errData = await response.json().catch(() => ({}));
-          console.warn("Gemini API call returned non-200 status:", response.status, errData);
-          aiReply = `Message saved in session. (AI response error - ${errData?.error || response.statusText || "please try again"})`;
-        }
-      } catch (aiErr: any) {
-        console.warn("Could not reach Gemini endpoint:", aiErr);
-        aiReply = `Message saved in session. (Could not connect to AI service: ${aiErr?.message || "Network error"})`;
-      }
+      // 2. Call AI reflection with fast timeout & local smart fallback
+      const aiReply = await getAiReflection(promptText, selectedEntry.title, selectedEntry.category, historyPayload);
 
       const aiMsgId = "msg_ai_" + Date.now();
       const aiMsgDoc: JournalMessage = {
@@ -498,7 +437,7 @@ export default function App() {
 
       setMessages((prev) => [...prev, aiMsgDoc]);
 
-      const newMsgCount = messages.length + 2;
+      const newMsgCount = updatedMessages.length + 1;
       setEntries((prev) =>
         prev.map((e) =>
           e.id === selectedEntry.id
@@ -525,28 +464,17 @@ export default function App() {
       );
 
       if (!isLocalGuest) {
-        try {
-          const aiMsgRef = doc(
-            db,
-            "users",
-            user.uid,
-            "entries",
-            selectedEntry.id,
-            "messages",
-            aiMsgId
-          );
-          await setDoc(aiMsgRef, sanitizePayload(aiMsgDoc));
-
-          const entryRef = doc(db, "users", user.uid, "entries", selectedEntry.id);
-          await updateDoc(entryRef, {
-            lastPrompt: promptText,
-            lastAiResponse: aiReply,
-            messageCount: newMsgCount,
-            updatedAt: new Date().toISOString(),
-          });
-        } catch (fsErr) {
-          console.warn("Firestore update failed:", fsErr);
-        }
+        const aiMsgRef = doc(db, "users", user.uid, "entries", selectedEntry.id, "messages", aiMsgId);
+        const entryRef = doc(db, "users", user.uid, "entries", selectedEntry.id);
+        setDoc(aiMsgRef, sanitizePayload(aiMsgDoc)).catch((err) =>
+          console.warn("[Firestore] Non-blocking aiMsg write notice:", err)
+        );
+        updateDoc(entryRef, {
+          lastPrompt: promptText,
+          lastAiResponse: aiReply,
+          messageCount: newMsgCount,
+          updatedAt: new Date().toISOString(),
+        }).catch((err) => console.warn("[Firestore] Non-blocking entry update notice:", err));
       }
     } catch (err: any) {
       console.error("Error sending message:", err);
@@ -564,22 +492,10 @@ export default function App() {
       setErrorMessage(null);
       setSummarizeLoading(true);
 
-      const response = await fetch("/api/gemini/summarize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: selectedEntry.title,
-          messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        }),
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || "Summarization failed.");
-      }
-
-      const data = await response.json();
-      const summaryText = data.summary || "Summary generated.";
+      const summaryText = await getAiSummary(
+        selectedEntry.title,
+        messages.map((m) => ({ role: m.role, content: m.content }))
+      );
 
       setEntries((prev) =>
         prev.map((e) =>
@@ -590,17 +506,12 @@ export default function App() {
         prev?.id === selectedEntry.id ? { ...prev, summary: summaryText, updatedAt: new Date().toISOString() } : prev
       );
 
-      // Persist summary in Firestore if allowed
       if (!isLocalGuest) {
-        try {
-          const entryRef = doc(db, "users", user.uid, "entries", selectedEntry.id);
-          await updateDoc(entryRef, {
-            summary: summaryText,
-            updatedAt: new Date().toISOString(),
-          });
-        } catch (fsErr) {
-          console.warn("Firestore summary update failed:", fsErr);
-        }
+        const entryRef = doc(db, "users", user.uid, "entries", selectedEntry.id);
+        updateDoc(entryRef, {
+          summary: summaryText,
+          updatedAt: new Date().toISOString(),
+        }).catch((err) => console.warn("[Firestore] Non-blocking summary update notice:", err));
       }
     } catch (err: any) {
       console.error("Error summarizing entry:", err);
