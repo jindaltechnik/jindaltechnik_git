@@ -6,10 +6,10 @@ An enterprise-grade, user-authenticated AI Journaling and Multi-Turn Reflection 
 
 | Threat Zone | Identified Risk | Impact Level | Countermeasure / Mitigation Strategy |
 | :--- | :--- | :--- | :--- |
-| **Input Surfaces** | Prompt Injection / XSS in Journal Entries | High | Input sanitization, length capping, React output encoding, schema validation |
+| **Input Surfaces** | Prompt Injection / XSS / Payload Overuse | High | Strict input length capping (max 4,000 chars), React output encoding, schema validation |
 | **Planning & Reasoning** | System Instruction Bypass in Gemini Chat | Critical | Rigid system instructions in server endpoint, model guardrails, response schema validation |
-| **Tool Execution** | Unbounded Recursive Calls / Infinite Loops | High | Strict request rate-limiting, synchronous single-turn API responses |
-| **Memory & State** | Cross-User Journal Entry Data Leaks | Critical | Firestore Security Rules enforcing `request.auth.uid == userId` for all document CRUD & queries |
+| **Tool Execution** | Unbounded Recursive Calls / Infinite Loops | High | Strict request rate-limiting, daily quota capping (max 10 entries/day), synchronous single-turn API responses |
+| **Memory & State** | Cross-User Journal Entry Data Leaks | Critical | Firestore Security Rules enforcing `request.auth.uid == userId` and `<= 4000` char bounds for all CRUD |
 | **Inter-System** | Credential Exposure / API Key Leakage | Critical | Full-stack architecture; Gemini API key handled strictly server-side; Firebase Auth JWT verification |
 
 ---
@@ -43,15 +43,48 @@ service cloud.firestore {
       allow read, write: if isOwner(userId) && isValidId(userId);
 
       match /entries/{entryId} {
-        allow read, write: if isOwner(userId) && isValidId(userId) && isValidId(entryId);
+        allow read: if isOwner(userId) && isValidId(userId) && isValidId(entryId);
+        allow create, update: if isOwner(userId) && isValidId(userId) && isValidId(entryId) &&
+          (request.resource.data.content is string && request.resource.data.content.size() <= 4000);
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(entryId);
 
         match /messages/{messageId} {
-          allow read, write: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId);
+          allow read: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId);
+          allow create, update: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId) &&
+            (request.resource.data.content is string && request.resource.data.content.size() <= 4000);
+          allow delete: if isOwner(userId) && isValidId(userId) && isValidId(entryId) && isValidId(messageId);
         }
       }
     }
   }
 }
+```
+
+---
+
+## ☁️ Google Cloud Run Deployment & Mandatory Campaign Labeling
+
+To meet the Cloud Run challenge labeling requirements:
+- **Key**: `dev-tutorial`
+- **Value**: `cloud-run-ai-challenge`
+
+Execute the following `gcloud` command:
+
+```bash
+# Apply mandatory campaign verification label to Cloud Run service
+gcloud run services update tj-secure-ai-journal \
+  --update-labels=dev-tutorial=cloud-run-ai-challenge \
+  --region=us-central1
+```
+
+Or deploy directly with labels applied:
+
+```bash
+gcloud run deploy tj-secure-ai-journal \
+  --source . \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --labels=dev-tutorial=cloud-run-ai-challenge
 ```
 
 ---
@@ -71,55 +104,15 @@ gcloud services enable secretmanager.googleapis.com
 gcloud secrets create GEMINI_API_KEY --replication-policy="automatic"
 echo -n "YOUR_GEMINI_API_KEY_HERE" | gcloud secrets versions add GEMINI_API_KEY --data-file=-
 
-# 4. Create Service Account for Vercel
+# 4. Create Service Account for Vercel / Cloud Run
 gcloud iam service-accounts create vercel-jindaltechnik-sa \
-  --description="Service account for Vercel deployment of TJ Secure AI Journal" \
+  --description="Service account for deployment of TJ Secure AI Journal" \
   --display-name="Vercel JindalTechnik Service Account"
 
 # 5. Grant Secret Manager Accessor role
 gcloud secrets add-iam-policy-binding GEMINI_API_KEY \
   --member="serviceAccount:vercel-jindaltechnik-sa@jindaltechnik.iam.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
-
-# 6. Export JSON Key for Vercel Environment Variables
-gcloud iam service-accounts keys create vercel-sa-key.json \
-  --iam-account=vercel-jindaltechnik-sa@jindaltechnik.iam.gserviceaccount.com
-```
-
----
-
-## 🚀 Vercel Deployment for JindalTechnik.com
-
-- **Git Account**: `laxmijindal634@gmail.com/jindaltechnik`
-- **Git Repository**: `googl-lab1-tjindal2026`
-- **Vercel Hobby Hosting**: Free hosting linked to domain `JindalTechnik.com`
-
-### Required Vercel Environment Variables
-
-In Vercel Dashboard → **Project Settings** → **Environment Variables**, add:
-
-| Variable Name | Description | Value |
-| :--- | :--- | :--- |
-| `GCP_SECRET_NAME` | Secret Manager resource path | `projects/jindaltechnik/secrets/GEMINI_API_KEY/versions/latest` |
-| `GCP_SERVICE_ACCOUNT_KEY` | Service Account JSON contents | Raw contents of `vercel-sa-key.json` |
-| `GEMINI_API_KEY` | Direct fallback API Key | Your Gemini API Key string |
-| `NODE_ENV` | Runtime environment | `production` |
-
----
-
-## ☁️ Google Cloud Run Deployment & Campaign Labeling
-
-```bash
-# Build and deploy to Cloud Run
-gcloud run deploy tj-secure-ai-journal \
-  --source . \
-  --region us-central1 \
-  --allow-unauthenticated
-
-# Apply mandatory campaign verification label
-gcloud run services update tj-secure-ai-journal \
-  --update-labels=dev-tutorial=cloud-run-ai-challenge \
-  --region=us-central1
 ```
 
 ---
@@ -128,19 +121,20 @@ gcloud run services update tj-secure-ai-journal \
 
 1. **User Authentication**:
    - Navigate to the landing page. Click **Sign in with Google**.
-   - Verify popup completes authentication and takes you to the private dashboard.
+   - Verify GIS popup completes authentication and restores session via `tj_google_user_session` in `localStorage`.
 
 2. **Creating a Reflection Entry**:
-   - Click **New Reflection**. Enter a title (e.g. "Product Strategy"), select category **Work**, enter initial prompt.
+   - Click **New Reflection**. Enter a title, select category, enter initial prompt (character limit enforced at 4,000 max).
    - Verify entry document is created in Firestore under `/users/{uid}/entries/{entryId}`.
 
-3. **Multi-turn AI Conversation**:
-   - Type follow-up prompts to Gemini 3.6 Flash.
-   - Verify messages are saved under subcollection `/users/{uid}/entries/{entryId}/messages`.
+3. **Daily Entry Quota Enforcement**:
+   - Users are capped at 10 entries per day to prevent system abuse.
+   - Creating an 11th entry triggers an informative error toast preventing write.
 
-4. **Executive AI Summarizer**:
-   - Click **AI Executive Summary**.
-   - Verify Gemini generates structured takeaways and persists the summary on the entry in Firestore.
+4. **Multi-turn AI Conversation**:
+   - Type follow-up prompts to Gemini 3.6 Flash (4,000 char limit enforced with real-time counter).
+   - Messages are persisted in subcollection `/users/{uid}/entries/{entryId}/messages`.
 
 5. **Security Verification**:
    - Attempting to access another user's entry path returns `PERMISSION_DENIED` via deployed `firestore.rules`.
+
