@@ -6,9 +6,10 @@ import { OAuthDomainModal } from "./OAuthDomainModal";
 interface LandingPageProps {
   onOpenDeployGuide: () => void;
   onOpenGuestRegistration: () => void;
+  onInstantGuest: () => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onOpenGuestRegistration }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onOpenGuestRegistration, onInstantGuest }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isOAuthModalOpen, setIsOAuthModalOpen] = useState(false);
@@ -25,47 +26,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onO
   };
 
   const handleGoogleSignIn = async () => {
-    if (isIframe) {
-      // In preview iframe, Google OAuth popups are blocked by browser sandboxing.
-      // Automatically open the app in a new tab where Google Sign-In works 100% cleanly!
-      const win = window.open(window.location.href, "_blank");
-      if (!win) {
-        setError(
-          "Popup blocked by browser. Please click 'Open Tab' above or enable popups for this site."
-        );
-      }
-      return;
-    }
-
     try {
       setLoading(true);
       setError(null);
       await signInWithGoogle();
     } catch (err: any) {
-      console.error("Sign-in failed:", err);
+      console.warn("Google Sign-In error:", err);
       const code = err?.code || "";
       const msg = err?.message || "";
-      if (code === "auth/operation-not-allowed") {
+
+      if (code === "auth/popup-closed-by-user") {
+        setError("Google sign-in popup was closed before account selection completed.");
+      } else if (
+        code === "auth/invalid-continue-uri" ||
+        code === "auth/unauthorized-domain" ||
+        msg.includes("invalid-continue-uri") ||
+        msg.includes("domain-restricted")
+      ) {
         setError(
-          "Google Provider Disabled [auth/operation-not-allowed]: Please enable 'Google' as a sign-in provider in Firebase Console > Authentication > Sign-in method."
+          `Google OAuth Error [${code || "auth/invalid-continue-uri"}]: Firebase requires '${window.location.hostname}' under Firebase Console > Authentication > Settings > Authorized Domains, AND authorized in Google Cloud OAuth Credentials.`
         );
-      } else if (code === "auth/unauthorized-domain" || code === "auth/domain-restricted-operation" || msg.includes("domain-restricted")) {
+      } else if (code === "auth/popup-blocked" || code === "auth/iframe-popup-blocked") {
         setError(
-          `Domain Unauthorized [auth/unauthorized-domain]: Firebase requires '${window.location.hostname}' to be listed separately in Firebase Console > Authentication > Settings > Authorized Domains (note: 'www.${window.location.hostname.replace("www.", "")}' and '${window.location.hostname.replace("www.", "")}' must BOTH be added).`
+          "Google Sign-In popup was blocked by browser iframe sandboxing. Click 'Open Tab' above to sign in."
         );
-      } else if (code === "auth/invalid-continue-uri") {
-        setError(
-          `Google Sign-In Redirect Blocked [auth/invalid-continue-uri]: Firebase Auth handler rejected return URL '${window.location.hostname}'. Ensure '${window.location.hostname}' is in Firebase Console > Authentication > Settings > Authorized Domains AND Google Cloud Console OAuth Client Credentials > Authorized Origins.`
-        );
-      } else if (code === "auth/iframe-popup-blocked" || code === "auth/popup-blocked") {
-        setError(
-          "Sign-in popup blocked by browser iframe restrictions [auth/popup-blocked]. Opening in new tab..."
-        );
-        window.open(window.location.href, "_blank");
-      } else if (code === "auth/popup-closed-by-user") {
-        setError("Google sign-in popup was closed before completing [auth/popup-closed-by-user].");
       } else {
-        setError(`[${code || "auth/error"}]: ${err?.message || "Google sign-in failed. Try Quick Guest Session below."}`);
+        setError(`Google Sign-In error [${code || "auth/error"}]: ${err?.message || "Please check credentials and try again."}`);
       }
     } finally {
       setLoading(false);
@@ -139,6 +125,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onO
                   </a>
                 </div>
               )}
+              {(error.includes("invalid-continue-uri") || error.includes("preview links") || error.includes("Google Sign-In") || error.includes("OAuth Error")) && (
+                <div className="pt-2 border-t border-red-200 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                  <button
+                    onClick={onInstantGuest}
+                    className="w-full inline-flex items-center justify-center space-x-1.5 px-3 py-2 bg-[#5A5A40] hover:bg-[#4A4A35] text-white rounded-xl font-medium transition cursor-pointer shadow-sm"
+                  >
+                    <span>Sign In with tjindal2026@gmail.com</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </button>
+                  <a
+                    href="https://www.jindaltechnik.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center space-x-1 text-green-800 font-semibold hover:underline text-[11px]"
+                  >
+                    <span>Or test on www.jindaltechnik.com</span>
+                  </a>
+                </div>
+              )}
             </div>
           )}
 
@@ -199,7 +204,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenDeployGuide, onO
           </div>
 
           <button
-            onClick={onOpenGuestRegistration}
+            onClick={onInstantGuest}
             className="w-full flex items-center justify-center space-x-2 bg-[#F0EDE8] hover:bg-[#E8EAE0] text-[#5A5A40] border border-[#D8DBC7] font-medium uppercase tracking-wider text-xs py-3.5 px-6 rounded-full transition duration-200 cursor-pointer shadow-sm hover:shadow"
           >
             <UserCheck className="w-4 h-4 text-[#5A5A40]" />

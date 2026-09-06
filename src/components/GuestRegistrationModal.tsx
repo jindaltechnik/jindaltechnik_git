@@ -39,7 +39,11 @@ export const GuestRegistrationModal: React.FC<GuestRegistrationModalProps> = ({
       setInfoMessage(`Verification link sent to ${emailAddr}! Check your inbox to verify ownership.`);
     } catch (err: any) {
       console.warn("Failed to send verification email link:", err);
-      setError(err?.message || "Failed to send verification email. Make sure email link sign-in is enabled in Firebase Auth.");
+      if (err?.message?.includes("auth/operation-not-allowed") || err?.code === "auth/operation-not-allowed") {
+        setInfoMessage("Email Link verification is disabled in Firebase Console, but no problem! Click 'START JOURNALING' below to enter your private session right now.");
+      } else {
+        setError(err?.message || "Failed to send verification email link. You can click 'START JOURNALING' below to proceed immediately!");
+      }
     } finally {
       setSendingLink(false);
     }

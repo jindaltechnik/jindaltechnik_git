@@ -12,32 +12,15 @@ import {
 import { getFirestore, doc, getDocFromServer } from "firebase/firestore";
 import { FirestoreErrorInfo, OperationType } from "../types";
 
-// Default fallback configuration for jindaltechnik
-const defaultConfig = {
-  projectId: "jindaltechnik",
-  appId: "1:543537240337:web:e3391c6ca89e279bb5a3b8",
+// Explicit configuration strictly bound to jindaltechnik (Project #543537240337)
+export const firebaseConfig = {
   apiKey: "AIzaSyCyfVbM4mM2zmMRuggSGNeG4g24uZGeO7o",
   authDomain: "jindaltechnik.firebaseapp.com",
-  firestoreDatabaseId: "ai-studio-059cf23a-d9c8-4a15-b4ce-d93cb5a1d55b",
+  projectId: "jindaltechnik",
   storageBucket: "jindaltechnik.firebasestorage.app",
   messagingSenderId: "543537240337",
-};
-
-// Support environment variables with fallback to default config
-const env = (import.meta as any).env || {};
-
-// Guard against stale env vars pointing to legacy project 401564077737
-const envProjectId = env.VITE_FIREBASE_PROJECT_ID;
-const isValidJindalTechnikEnv = envProjectId === "jindaltechnik" || !envProjectId;
-
-export const firebaseConfig = {
-  apiKey: (isValidJindalTechnikEnv && env.VITE_FIREBASE_API_KEY) || defaultConfig.apiKey,
-  authDomain: (isValidJindalTechnikEnv && env.VITE_FIREBASE_AUTH_DOMAIN) || defaultConfig.authDomain,
-  projectId: "jindaltechnik",
-  storageBucket: (isValidJindalTechnikEnv && env.VITE_FIREBASE_STORAGE_BUCKET) || defaultConfig.storageBucket,
-  messagingSenderId: "543537240337",
   appId: "1:543537240337:web:e3391c6ca89e279bb5a3b8",
-  firestoreDatabaseId: (isValidJindalTechnikEnv && env.VITE_FIREBASE_DATABASE_ID) || defaultConfig.firestoreDatabaseId,
+  firestoreDatabaseId: "ai-studio-059cf23a-d9c8-4a15-b4ce-d93cb5a1d55b",
 };
 
 const app = initializeApp(firebaseConfig);
@@ -58,46 +41,16 @@ export const db = firestoreDb;
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-// Process redirect result if page redirected back from Google Auth
-getRedirectResult(auth).catch((err) => {
-  if (
-    err?.code !== "auth/credential-already-in-use" &&
-    err?.code !== "auth/invalid-continue-uri" &&
-    err?.code !== "auth/null-user"
-  ) {
-    console.warn("Redirect sign-in result error:", err);
-  }
-});
-
-// Custom Google Sign-In helper with iframe sandbox detection
+// Custom Google Sign-In helper using signInWithPopup
 export const signInWithGoogle = async () => {
   googleProvider.setCustomParameters({
     prompt: "select_account",
   });
 
-  const isIframe = typeof window !== "undefined" && window.self !== window.top;
-
-  if (isIframe) {
-    const iframeErr = new Error(
-      "Google Sign-In popup is restricted inside the preview frame. Click 'Open Tab' to open the app in a standalone browser tab."
-    );
-    (iframeErr as any).code = "auth/iframe-popup-blocked";
-    throw iframeErr;
-  }
-
   try {
     return await signInWithPopup(auth, googleProvider);
   } catch (error: any) {
-    console.warn("signInWithPopup failed with code:", error?.code, error?.message);
-    if (
-      error?.code === "auth/popup-blocked" ||
-      error?.code === "auth/popup-closed-by-user" ||
-      error?.code === "auth/cancelled-popup-request"
-    ) {
-      // Fallback to redirect sign-in on mobile / strict popup blockers
-      await signInWithRedirect(auth, googleProvider);
-      return;
-    }
+    console.warn("signInWithPopup failed:", error?.code, error?.message);
     throw error;
   }
 };
@@ -120,9 +73,14 @@ export const sendEmailVerificationLink = async (email: string) => {
     await sendSignInLinkToEmail(auth, email, actionCodeSettings);
     window.localStorage.setItem("tj_emailForSignIn", email);
   } catch (err: any) {
+    if (err?.code === "auth/operation-not-allowed") {
+      throw new Error(
+        "Email Link (Magic Link) Sign-In is disabled in Firebase Console [auth/operation-not-allowed]. Enable 'Email/Password > Email link' in Firebase Console > Authentication > Sign-in method. You can still click 'Start Journaling' below to proceed immediately!"
+      );
+    }
     if (err?.code === "auth/invalid-continue-uri") {
       throw new Error(
-        "Email Link Sign-In requires Passwordless Link activation. Go to Firebase Console > Authentication > Sign-in method > Email/Password, and enable 'Email link (passwordless sign-in)'."
+        "Email Link Sign-In requires Passwordless Link activation in Firebase Console > Authentication > Sign-in method > Email/Password. You can still click 'Start Journaling' below to proceed immediately!"
       );
     }
     throw err;
@@ -151,14 +109,12 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   return new Error(JSON.stringify(errInfo));
 }
 
-// Test Connection on boot as required by skill
+// Test Connection on boot quietly
 export async function testConnection() {
   try {
     await getDocFromServer(doc(db, "test", "connection"));
   } catch (error) {
-    if (error instanceof Error && error.message.includes("client is offline")) {
-      console.warn("Firestore connection check: Client is currently offline or initial connection pending.");
-    }
+    // Quietly ignore initial connection check rejections during unauthenticated boot
   }
 }
 

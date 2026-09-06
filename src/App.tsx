@@ -11,7 +11,8 @@ import {
   orderBy,
   serverTimestamp,
 } from "firebase/firestore";
-import { auth, db, handleFirestoreError, signOutUser } from "./lib/firebase";
+import { auth, db, handleFirestoreError, signOutUser, firebaseConfig } from "./lib/firebase";
+import { getRedirectResult } from "firebase/auth";
 import { sanitizePayload } from "./lib/sanitize";
 import { JournalEntry, JournalMessage, EntryCategory, OperationType } from "./types";
 
@@ -41,13 +42,47 @@ export default function App() {
   const [summarizeLoading, setSummarizeLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Auth observer
+  // Auth observer & redirect handler
   useEffect(() => {
+    // Check if a saved guest profile exists in localStorage on startup
+    let hasGuest = false;
+    try {
+      const savedGuestProfile = localStorage.getItem("tj_guest_profile");
+      if (savedGuestProfile) {
+        const parsed = JSON.parse(savedGuestProfile);
+        if (parsed?.uid) {
+          hasGuest = true;
+          setIsLocalGuest(true);
+          const guestUser = {
+            uid: parsed.uid,
+            displayName: parsed.displayName || `${parsed.firstName || "Tarun"} ${parsed.lastName || "Jindal"}`,
+            email: parsed.email || "guest@jindaltechnik.com",
+            emailVerified: false,
+            isAnonymous: true,
+          } as User;
+          setUser(guestUser);
+
+          // Restore guest entries
+          const savedEntries = localStorage.getItem(`tj_guest_entries_${parsed.uid}`);
+          if (savedEntries) {
+            const parsedEntries = JSON.parse(savedEntries);
+            setEntries(parsedEntries);
+            if (parsedEntries.length > 0) {
+              setSelectedEntry(parsedEntries[0]);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Error restoring saved guest profile:", e);
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
+        localStorage.removeItem("tj_guest_profile");
         setIsLocalGuest(false);
         setUser(currentUser);
-      } else if (!isLocalGuest) {
+      } else if (!hasGuest) {
         setUser(null);
         setEntries([]);
         setSelectedEntry(null);
@@ -56,7 +91,7 @@ export default function App() {
       setAuthLoading(false);
     });
     return () => unsubscribe();
-  }, [isLocalGuest]);
+  }, []);
 
   const handleStartGuestSessionWithProfile = ({
     firstName,
@@ -102,6 +137,14 @@ export default function App() {
         console.warn("Failed to parse saved guest entries:", e);
       }
     }
+  };
+
+  const handleInstantGuestSession = () => {
+    handleStartGuestSessionWithProfile({
+      firstName: "Tarun",
+      lastName: "Jindal",
+      email: "tjindal2026@gmail.com",
+    });
   };
 
   const handleSignOut = async () => {
@@ -295,11 +338,11 @@ export default function App() {
         } else {
           const errData = await response.json().catch(() => ({}));
           console.warn("Gemini API call returned error status:", response.status, errData);
-          aiReply = `Reflection recorded in session. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for automated AI reflections.)`;
+          aiReply = `Reflection recorded in session. (AI service response error - ${errData?.error || response.statusText || "please try again"})`;
         }
-      } catch (aiErr) {
+      } catch (aiErr: any) {
         console.warn("Could not connect to Gemini API endpoint:", aiErr);
-        aiReply = `Reflection recorded in session. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for automated AI reflections.)`;
+        aiReply = `Reflection recorded in session. (Could not connect to AI service: ${aiErr?.message || "Network error"})`;
       }
 
       // 3. Save AI message
@@ -413,12 +456,13 @@ export default function App() {
             aiReply = aiData.reply;
           }
         } else {
-          console.warn("Gemini API call returned non-200 status:", response.status);
-          aiReply = `Message saved in session. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for AI responses.)`;
+          const errData = await response.json().catch(() => ({}));
+          console.warn("Gemini API call returned non-200 status:", response.status, errData);
+          aiReply = `Message saved in session. (AI response error - ${errData?.error || response.statusText || "please try again"})`;
         }
-      } catch (aiErr) {
+      } catch (aiErr: any) {
         console.warn("Could not reach Gemini endpoint:", aiErr);
-        aiReply = `Message saved in session. (Note: Ensure GEMINI_API_KEY environment variable is configured in Vercel settings for AI responses.)`;
+        aiReply = `Message saved in session. (Could not connect to AI service: ${aiErr?.message || "Network error"})`;
       }
 
       const aiMsgId = "msg_ai_" + Date.now();
@@ -585,6 +629,7 @@ export default function App() {
         <LandingPage
           onOpenDeployGuide={() => setIsDeployGuideOpen(true)}
           onOpenGuestRegistration={() => setIsGuestRegistrationOpen(true)}
+          onInstantGuest={handleInstantGuestSession}
         />
         <GuestRegistrationModal
           isOpen={isGuestRegistrationOpen}
@@ -646,17 +691,17 @@ export default function App() {
             isSummarizing={summarizeLoading}
           />
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-500 bg-slate-950">
-            <div className="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-blue-400 mb-4 shadow-xl">
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#F7F5F2]">
+            <div className="w-16 h-16 rounded-2xl bg-[#E8EAE0] border border-[#D8DBC7] flex items-center justify-center text-[#5A5A40] mb-4 shadow-sm">
               <BookOpen className="w-8 h-8" />
             </div>
-            <h3 className="text-lg font-bold text-slate-200 mb-2">No Reflection Entry Selected</h3>
-            <p className="text-xs max-w-md text-slate-400 mb-6 leading-relaxed">
+            <h3 className="text-xl font-normal font-serif text-[#4A443D] mb-2">No Reflection Entry Selected</h3>
+            <p className="text-xs max-w-md text-[#8A847C] mb-6 leading-relaxed font-normal">
               Select an existing journal entry from the sidebar or start a new AI reflection session.
             </p>
             <button
               onClick={() => setIsNewEntryModalOpen(true)}
-              className="inline-flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs px-4 py-2.5 rounded-xl shadow-lg shadow-blue-600/20 transition cursor-pointer"
+              className="inline-flex items-center space-x-2 bg-[#5A5A40] hover:bg-[#4A4A35] text-white font-medium uppercase tracking-wider text-xs px-5 py-3 rounded-full shadow-sm transition cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Create New Journal Entry</span>
